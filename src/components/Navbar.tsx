@@ -1,55 +1,105 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Archive, ArrowLeft, Plus } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Menu, Home, LogIn } from 'lucide-react';
 import { Bricolage_Grotesque } from 'next/font/google';
+import Sidebar from '@/components/Sidebar';
+import LoginModal from '@/components/LoginModal'; // Import Modal Login
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
 
-interface NavbarProps {
-  variant: 'main' | 'history';
-  onOpenAddModal?: () => void;
-}
+export default function Navbar() {
+  const pathname = usePathname();
+  const isHomePage = pathname === '/';
+  
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
-export default function Navbar({ variant, onOpenAddModal }: NavbarProps) {
+  // State untuk mengontrol Modal Login
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    const saved = localStorage.getItem('ormov_sidebar_open');
+    if (saved) {
+      setIsSidebarOpen(JSON.parse(saved));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isMounted) {
+      localStorage.setItem('ormov_sidebar_open', JSON.stringify(isSidebarOpen));
+    }
+  }, [isSidebarOpen, isMounted]);
+
+  const handleToggleSidebar = () => {
+    setIsSidebarOpen((prev) => !prev);
+  };
+
   const focus =
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:ring-offset-2 focus-visible:ring-offset-[#10262B]';
 
   return (
-    <header className="bg-[#10262B] text-white">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 md:px-8">
-        <div className="flex items-center gap-3">
-          <div className={`${display.className} text-2xl font-extrabold tracking-tight`}>Ormov</div>
-          <span className="h-5 w-px bg-white/20" />
-          <span className="text-sm text-white/70">PT Eka Ormed Indonesia</span>
-        </div>
-
-        {variant === 'main' ? (
-          <div className="flex items-center gap-2">
-            <Link
-              href="/history"
-              className={`${focus} inline-flex items-center gap-2 rounded-lg border border-white/25 px-3.5 py-2 text-sm font-medium text-white/95 transition hover:bg-white/10`}
+    <>
+      <header className="sticky top-0 z-50 bg-[#10262B] text-white shadow-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 md:px-8">
+          
+          {/* Bagian Kiri: Tombol Hamburger & Logo */}
+          <div className="flex items-center gap-3.5">
+            <button
+              id="hamburger-toggle-btn"
+              onClick={handleToggleSidebar}
+              aria-label="Toggle Menu Sidebar"
+              className={`${focus} grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-white/20 bg-white/5 text-white transition hover:bg-white/15`}
             >
-              <Archive className="h-4 w-4" /> Arsip
+              <Menu className="h-5 w-5" />
+            </button>
+
+            <Link href="/" className="flex items-center gap-3 transition hover:opacity-90">
+              <div className={`${display.className} text-2xl font-extrabold tracking-tight`}>Ormov</div>
+              <span className="hidden h-5 w-px bg-white/25 sm:inline-block" />
+              <span className="hidden text-sm text-white/75 sm:inline-block">PT Eka Ormed Indonesia</span>
             </Link>
-            {onOpenAddModal && (
-              <button
-                onClick={onOpenAddModal}
-                className={`${focus} inline-flex items-center gap-2 rounded-lg bg-[#2DD4BF] px-3.5 py-2 text-sm font-semibold text-[#06302B] transition hover:bg-[#5EEAD4]`}
-              >
-                <Plus className="h-4 w-4" /> Buat SPK baru
-              </button>
-            )}
           </div>
-        ) : (
-          <Link
-            href="/"
-            className={`${focus} inline-flex items-center gap-2 rounded-lg border border-white/25 px-3.5 py-2 text-sm font-medium text-white/95 transition hover:bg-white/10`}
-          >
-            <ArrowLeft className="h-4 w-4" /> Kembali ke monitoring
-          </Link>
-        )}
-      </div>
-    </header>
+
+          {/* Bagian Kanan: Aksi (Ke Beranda & Tombol Login) */}
+          <div className="flex items-center gap-2.5">
+            {!isHomePage && (
+              <Link
+                href="/"
+                className={`${focus} inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3.5 py-2 text-xs font-medium text-white/90 transition hover:bg-white/15 hover:text-white md:text-sm`}
+              >
+                <Home className="h-4 w-4 text-[#2DD4BF]" />
+                <span className="hidden sm:inline">Ke Beranda</span>
+              </Link>
+            )}
+
+            {/* Tombol Pemicu Modal Login */}
+            <button
+              onClick={() => setIsLoginModalOpen(true)}
+              className={`${focus} inline-flex items-center gap-1.5 rounded-lg bg-[#0F766E] px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#115E56] active:scale-[0.98] md:text-sm`}
+            >
+              <LogIn className="h-4 w-4 text-white" />
+              <span>Masuk</span>
+            </button>
+          </div>
+
+        </div>
+      </header>
+
+      {/* Komponen Sidebar */}
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        onClose={() => setIsSidebarOpen(false)} 
+      />
+
+      {/* Komponen Modal Login */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+      />
+    </>
   );
 }

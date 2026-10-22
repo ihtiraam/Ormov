@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
-import { Search, RefreshCw, Clock, AlertCircle, CheckCircle2, SlidersHorizontal, X, CalendarDays, Archive, Trash2 } from 'lucide-react';
+import { Search, RefreshCw, Clock, AlertCircle, CheckCircle2, SlidersHorizontal, X, CalendarDays, Archive, Trash2, ArrowLeft } from 'lucide-react';
 import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
 import DateRangeFilter from '@/components/DateRangeFilter';
-import Navbar from '@/components/Navbar';
-import DeleteConfirmModal from '@/components/DeleteConfirmModal'; // <-- Import modal hapus
+import DeleteConfirmModal from '@/components/DeleteConfirmModal';
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
 const body = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'] });
@@ -154,17 +154,26 @@ export default function ORMOVHistoryPage() {
         @media (prefers-reduced-motion: reduce) { .ormov-pop, .ormov-fade { animation: none } }
       `}</style>
 
-      <Navbar variant="history" />
-
       <main className="mx-auto max-w-6xl px-4 pb-16 md:px-8">
+        {/* Section Header dengan Tombol "Kembali ke Monitoring" */}
         <section className="py-8">
           <p className="inline-flex items-center gap-2 text-sm text-[#5B7276]">
             <Archive className="h-4 w-4" /> Arsip dan laporan
           </p>
-          <h1 className={`${display.className} mt-1 flex flex-wrap items-baseline gap-x-3 text-5xl font-extrabold tracking-tight md:text-6xl`}>
-            {loading && data.length === 0 ? '–' : data.length}
-            <span className="text-xl font-medium text-[#5B7276] md:text-2xl">SPK sudah selesai</span>
-          </h1>
+          <div className="mt-1 flex flex-wrap items-baseline justify-between gap-4">
+            <h1 className={`${display.className} flex flex-wrap items-baseline gap-x-3 text-5xl font-extrabold tracking-tight md:text-6xl`}>
+              {loading && data.length === 0 ? '–' : data.length}
+              <span className="text-xl font-medium text-[#5B7276] md:text-2xl">SPK sudah selesai</span>
+            </h1>
+
+            {/* TOMBOL KEMBALI KE HALAMAN DASHBOARD */}
+            <Link
+              href="/dashboard"
+              className={`${focus} inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-[#10262B] ring-1 ring-[#D5DEDB] transition hover:bg-[#F7F9F8] hover:ring-[#9DB0B3] active:scale-[0.98]`}
+            >
+              <ArrowLeft className="h-4 w-4 text-[#5B7276]" /> Kembali ke monitoring
+            </Link>
+          </div>
         </section>
 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
