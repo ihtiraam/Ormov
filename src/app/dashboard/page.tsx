@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
 import {
   Search, RefreshCw, SlidersHorizontal, ChevronRight, CalendarDays, ClipboardList, Trash2, Plus, Archive,
 } from 'lucide-react';
@@ -12,25 +11,17 @@ import StatusConfigModal from '@/components/StatusConfigModal';
 import DetailDrawer from '@/components/DetailDrawer';
 import DateRangeFilter from '@/components/DateRangeFilter';
 import DeleteConfirmModal from '@/components/DeleteConfirmModal';
+import LoginModal from '@/components/LoginModal'; // Modal Login
+
+// Import service backend & Auth Context
+import { getActiveSPK, createSPK, updateSPKStatus, deleteSPK, SPKSimple, ItemStatus } from '@/services/spkService';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabaseClient';
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
 const body = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'] });
 
-type ItemStatus = 'BELUM_SELESAI' | 'HAMPIR_SELESAI' | 'SELESAI';
-
-interface SPKSimple {
-  id: string;
-  doc_number: string;
-  handover_date: string;
-  purpose_notes: string | null;
-  completion_notes: string | null;
-  item_status: ItemStatus;
-  is_finished: boolean;
-  created_at: string;
-}
-
 type Filter = 'SEMUA' | ItemStatus;
-
 const STALE_DAYS = 14;
 
 const STATUS: Record<ItemStatus, { label: string; step: number; text: string; bg: string; bar: string }> = {
@@ -55,6 +46,7 @@ function ProgressTrack({ status }: { status: ItemStatus }) {
 }
 
 export default function ORMOVMainDashboard() {
+  const { isLoggedIn } = useAuth(); // Cek status login dari AuthContext yang baru
   const [data, setData] = useState<SPKSimple[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -66,19 +58,30 @@ export default function ORMOVMainDashboard() {
   const [detailItem, setDetailItem] = useState<SPKSimple | null>(null);
   const [configItem, setConfigItem] = useState<SPKSimple | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
-
-  // State untuk modal hapus
   const [deleteTarget, setDeleteTarget] = useState<SPKSimple | null>(null);
+  
+  // State untuk kontrol Modal Login interaktif
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
+
+  // Helper untuk mengecek otorisasi sebelum menjalankan aksi
+  const requireAuth = (action: () => void) => {
+    if (!isLoggedIn) {
+      setIsLoginModalOpen(true);
+      return;
+    }
+    action();
+  };
 
   const fetchActiveSPK = async () => {
     setLoading(true);
-    const { data: result } = await supabase
-      .from('spk_simple')
-      .select('*')
-      .eq('is_finished', false)
-      .order('created_at', { ascending: false });
-    if (result) setData(result);
-    setLoading(false);
+    try {
+      const result = await getActiveSPK();
+      setData(result);
+    } catch (err: any) {
+      console.error(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -92,47 +95,41 @@ export default function ORMOVMainDashboard() {
     };
   }, []);
 
-  const handleCreateSPK = async (docNumber: string, handoverDate: string, purposeNotes: string) => {
-    await supabase.from('spk_simple').insert([
-      {
-        doc_number: docNumber,
-        handover_date: handoverDate,
-        purpose_notes: purposeNotes,
-        item_status: 'BELUM_SELESAI',
-        is_finished: false,
-      },
-    ]);
-    setIsAddModalOpen(false);
-    fetchActiveSPK();
+  const handleCreateSPK = async (
+    docNumber: string,
+    handoverDate: string,
+    purposeNotes: string,
+    labelText?: string,
+    labelColor?: string
+  ) => {
+    try {
+      await createSPK(docNumber, handoverDate, purposeNotes, labelText, labelColor);
+      setIsAddModalOpen(false);
+      fetchActiveSPK();
+    } catch (err: any) {
+      alert('Gagal membuat SPK: ' + err.message);
+    }
   };
 
   const handleUpdateStatus = async (status: ItemStatus, notes: string) => {
     if (!configItem) return;
-    const { error } = await supabase
-      .from('spk_simple')
-      .update({
-        item_status: status,
-        completion_notes: status === 'HAMPIR_SELESAI' ? notes : null,
-        is_finished: status === 'SELESAI',
-      })
-      .eq('id', configItem.id);
-
-    if (error) alert(error.message);
-    else {
+    try {
+      await updateSPKStatus(configItem.id, status, notes);
       setConfigItem(null);
       fetchActiveSPK();
+    } catch (err: any) {
+      alert(err.message);
     }
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
-
-    const { error } = await supabase.from('spk_simple').delete().eq('id', deleteTarget.id);
-    if (error) {
-      alert('Gagal menghapus data: ' + error.message);
-    } else {
+    try {
+      await deleteSPK(deleteTarget.id);
       setDeleteTarget(null);
       fetchActiveSPK();
+    } catch (err: any) {
+      alert('Gagal menghapus data: ' + err.message);
     }
   };
 
@@ -181,30 +178,27 @@ export default function ORMOVMainDashboard() {
       `}</style>
 
       <main className="mx-auto max-w-6xl px-4 pb-16 md:px-8">
-        {/* Header halaman: judul di kiri, aksi utama di kanan, ringkasan status di bawah judul */}
         <section className="py-8">
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <p className="text-sm text-[#5B7276]">Monitoring SPK / MUTASI aktif</p>
-              <h1
-                className={`${display.className} mt-1 flex flex-wrap items-baseline gap-x-3 text-5xl font-extrabold tracking-tight md:text-6xl`}
-              >
+              <h1 className={`${display.className} mt-1 flex flex-wrap items-baseline gap-x-3 text-5xl font-extrabold tracking-tight md:text-6xl`}>
                 {loading && data.length === 0 ? '–' : counts.SEMUA}
                 <span className="text-xl font-medium text-[#5B7276] md:text-2xl">SPK / MUTASI berjalan</span>
               </h1>
             </div>
 
-            {/* Aksi: sekunder di kiri, utama di kanan. Di HP keduanya sama lebar */}
             <div className="grid grid-cols-2 gap-2.5 md:flex md:shrink-0 md:items-center md:pt-1">
               <Link
-                href="/history"
+                href="/dashboard/history"
                 className={`${focus} inline-flex items-center justify-center gap-2 rounded-xl bg-[#E3EEEB] px-4 py-2.5 text-sm font-semibold text-[#0B5A52] ring-1 ring-inset ring-[#C6DAD5] transition hover:bg-[#D5E6E1] active:scale-[0.98]`}
               >
                 <Archive className="h-4 w-4" /> Arsip
               </Link>
 
+              {/* Tombol Buat SPK Baru dengan proteksi login */}
               <button
-                onClick={() => setIsAddModalOpen(true)}
+                onClick={() => requireAuth(() => setIsAddModalOpen(true))}
                 className={`${focus} inline-flex items-center justify-center gap-2 rounded-xl bg-[#0F766E] px-4 py-2.5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_8px_18px_-8px_rgba(15,118,110,0.75)] transition hover:bg-[#0D645D] active:scale-[0.98]`}
               >
                 <span className="grid h-5 w-5 place-items-center rounded-md bg-white/15">
@@ -328,7 +322,17 @@ export default function ORMOVMainDashboard() {
                     className="grid gap-x-6 gap-y-3 border-b border-[#EEF2F0] px-5 py-5 transition-colors last:border-0 hover:bg-[#F7F9F8] md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.8fr)_200px_auto] md:items-center md:px-6"
                   >
                     <div className="min-w-0">
-                      <p className={`${display.className} truncate text-lg font-bold leading-tight`}>{item.doc_number}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className={`${display.className} truncate text-lg font-bold leading-tight`}>{item.doc_number}</p>
+                        {item.label_text && (() => {
+                          const [bgClass, textClass] = (item.label_color || 'bg-[#DDF3EA]|text-[#0B6B4F]').split('|');
+                          return (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${bgClass} ${textClass}`}>
+                              {item.label_text}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-[#5B7276]">
                         <span className="inline-flex items-center gap-1.5">
                           <CalendarDays className="h-3.5 w-3.5" /> {fmtDate(item.handover_date)}
@@ -358,16 +362,17 @@ export default function ORMOVMainDashboard() {
                       <ProgressTrack status={item.item_status} />
                     </div>
 
+                    {/* Kolom Aksi dengan proteksi login */}
                     <div className="flex items-center justify-end gap-2 md:w-36">
                       <button
-                        onClick={() => setConfigItem(item)}
+                        onClick={() => requireAuth(() => setConfigItem(item))}
                         className={`${focus} inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[#10262B] ring-1 ring-[#C5D1CE] transition hover:bg-[#10262B] hover:text-white hover:ring-[#10262B]`}
                         title="Ubah Status"
                       >
                         <SlidersHorizontal className="h-3.5 w-3.5" /> <span className="md:hidden">Ubah</span>
                       </button>
                       <button
-                        onClick={() => setDeleteTarget(item)}
+                        onClick={() => requireAuth(() => setDeleteTarget(item))}
                         className={`${focus} inline-flex items-center justify-center rounded-lg p-2 text-[#B4402B] ring-1 ring-[#F2D6D0] transition hover:bg-[#FBE8E5]`}
                         title="Hapus SPK"
                         aria-label={`Hapus ${item.doc_number}`}
@@ -390,19 +395,21 @@ export default function ORMOVMainDashboard() {
       <DetailDrawer
         item={detailItem}
         onClose={() => setDetailItem(null)}
-        onOpenConfig={(item) => setConfigItem(item)}
+        onOpenConfig={(item) => requireAuth(() => setConfigItem(item))}
       />
 
       <StatusConfigModal item={configItem} onClose={() => setConfigItem(null)} onSave={handleUpdateStatus} />
       <AddSPKModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onSubmit={handleCreateSPK} />
 
-      {/* Modal Konfirmasi Hapus */}
       <DeleteConfirmModal
         isOpen={!!deleteTarget}
         docNumber={deleteTarget?.doc_number || ''}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleConfirmDelete}
       />
+
+      {/* Modal Login otomatis muncul jika user belum login dan menekan tombol fitur terbatas */}
+      <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Lock, User, Eye, EyeOff, Loader2, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
 import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
+import { useAuth } from '@/context/AuthContext'; // Import hook autentikasi global
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
 const body = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'] });
@@ -13,6 +14,7 @@ interface LoginModalProps {
 }
 
 export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
+  const { login } = useAuth(); // Mengambil fungsi login global dari AuthContext
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -57,14 +59,16 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     setIsLoading(true);
 
     try {
-      // TODO: Integrasikan dengan autentikasi backend/Supabase menggunakan Username
-      // Simulasi delay request
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Memanggil fungsi login yang mengecek ke tabel staff di Supabase
+      const result = await login(username, password);
 
-      // Jika berhasil:
-      onClose();
+      if (result.success) {
+        onClose(); // Tutup modal jika autentikasi berhasil
+      } else {
+        setErrorMessage(result.message || 'Gagal masuk. Periksa kembali akun Anda.');
+      }
     } catch (err) {
-      setErrorMessage('Gagal masuk. Periksa kembali username dan kata sandi Anda.');
+      setErrorMessage('Terjadi kesalahan koneksi ke server.');
     } finally {
       setIsLoading(false);
     }
@@ -252,23 +256,36 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
               {capsOn && <p className="mt-1.5 text-xs font-medium text-[#9A5B0B]">Caps Lock sedang aktif.</p>}
             </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className={`${focus} group flex w-full items-center justify-center gap-2 rounded-xl bg-[#0F766E] py-3 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_8px_18px_-8px_rgba(15,118,110,0.75)] transition hover:bg-[#0D645D] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70`}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Memproses...</span>
-                </>
-              ) : (
-                <>
-                  <span>Masuk</span>
-                  <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                </>
-              )}
-            </button>
+            <div className="space-y-3 pt-1">
+              {/* Tombol Login (Utama) */}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className={`${focus} group flex w-full items-center justify-center gap-2 rounded-xl bg-[#0F766E] py-3 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_8px_18px_-8px_rgba(15,118,110,0.75)] transition hover:bg-[#0D645D] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70`}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Memproses...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Masuk</span>
+                    <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                  </>
+                )}
+              </button>
+
+              {/* Tombol Tetap Lanjut (Ghost / Minimalist Secondary) */}
+              <button
+                type="button"
+                onClick={onClose}
+                className={`${focus} group flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-medium text-[#5B7276] transition hover:bg-[#F7F9F8] hover:text-[#12292D] active:scale-[0.98]`}
+              >
+                <span>Atau tetap lanjut tanpa masuk</span>
+                <ArrowRight className="h-3.5 w-3.5 opacity-40 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
+              </button>
+            </div>
           </form>
 
           <p className="mt-6 text-center text-xs leading-relaxed text-[#7F9296] md:hidden">

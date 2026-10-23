@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, LayoutDashboard, Hash, Archive, ChevronDown } from 'lucide-react';
+import { Home, LayoutDashboard, Hash, Archive, CalendarCheck, ChevronDown } from 'lucide-react';
 import { Bricolage_Grotesque } from 'next/font/google';
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
@@ -187,7 +187,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                   >
                     <LayoutDashboard className="h-[18px] w-[18px]" />
                   </span>
-                  Dashboard
+                  Dashboard SPK
                 </span>
                 <ChevronDown className={`h-4 w-4 text-white/50 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -208,6 +208,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               </div>
             </div>
 
+            {/* Menu Baru: PPIC Planning & Progress */}
+            <NavLink
+              href="/ppic"
+              icon={CalendarCheck}
+              label="PPIC Planning & Progress"
+              active={is('/ppic')}
+              onNavigate={onClose}
+            />
+
+            {/* Menu Lot Produksi */}
             <NavLink href="/lot" icon={Hash} label="Nomor Lot Produksi" active={is('/lot')} onNavigate={onClose} />
           </div>
         </nav>

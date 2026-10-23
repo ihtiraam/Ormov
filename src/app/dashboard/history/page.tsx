@@ -2,30 +2,30 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
 import { Search, RefreshCw, Clock, AlertCircle, CheckCircle2, SlidersHorizontal, X, CalendarDays, Archive, Trash2, ArrowLeft } from 'lucide-react';
 import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
 import DateRangeFilter from '@/components/DateRangeFilter';
 import DeleteConfirmModal from '@/components/DeleteConfirmModal';
+import LoginModal from '@/components/LoginModal'; // Modal Login
+
+// Import service backend & Auth Context
+import { getFinishedSPK, updateSPKStatus, deleteSPK, SPKSimple, ItemStatus } from '@/services/spkService';
+import { useAuth } from '@/context/AuthContext';
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
 const body = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'] });
 
-type ItemStatus = 'BELUM_SELESAI' | 'HAMPIR_SELESAI' | 'SELESAI';
-
-interface SPKSimple {
-  id: string;
-  doc_number: string;
-  handover_date: string;
-  purpose_notes: string | null;
-  completion_notes: string | null;
-  item_status: ItemStatus;
-  is_finished: boolean;
-  created_at: string;
-}
-
 const fmtDate = (iso: string) =>
   iso ? new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '–';
+
+const getCompletionDuration = (handover: string, updated: string) => {
+  if (!handover) return null;
+  const startDate = new Date(handover).setHours(0, 0, 0, 0);
+  const endDate = new Date(updated || Date.now()).setHours(0, 0, 0, 0);
+  const diffTime = endDate - startDate;
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  return Math.max(0, diffDays);
+};
 
 const OPTIONS: {
   key: ItemStatus; label: string; Icon: typeof Clock;
@@ -37,6 +37,7 @@ const OPTIONS: {
 ];
 
 export default function ORMOVHistoryPage() {
+  const { isLoggedIn } = useAuth(); // Menggunakan isLoggedIn dari AuthContext yang baru
   const [data, setData] = useState<SPKSimple[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -49,19 +50,29 @@ export default function ORMOVHistoryPage() {
   const [completionNotesInput, setCompletionNotesInput] = useState<string>('');
   const [notesError, setNotesError] = useState<boolean>(false);
 
-  // State untuk modal hapus
   const [deleteTarget, setDeleteTarget] = useState<SPKSimple | null>(null);
+  
+  // State untuk kontrol Modal Login interaktif
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
+
+  const requireAuth = (action: () => void) => {
+    if (!isLoggedIn) {
+      setIsLoginModalOpen(true);
+      return;
+    }
+    action();
+  };
 
   const fetchFinishedSPK = async () => {
     setLoading(true);
-    const { data: result, error } = await supabase
-      .from('spk_simple')
-      .select('*')
-      .eq('is_finished', true)
-      .order('created_at', { ascending: false });
-
-    if (!error && result) setData(result);
-    setLoading(false);
+    try {
+      const result = await getFinishedSPK();
+      setData(result);
+    } catch (err: any) {
+      console.error(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -83,44 +94,34 @@ export default function ORMOVHistoryPage() {
       return;
     }
 
-    const isFinished = selectedStatus === 'SELESAI';
-
-    const { error } = await supabase
-      .from('spk_simple')
-      .update({
-        item_status: selectedStatus,
-        completion_notes:
-          selectedStatus === 'HAMPIR_SELESAI' ? completionNotesInput : selectedStatus === 'BELUM_SELESAI' ? null : completionNotesInput,
-        is_finished: isFinished,
-      })
-      .eq('id', configItem.id);
-
-    if (error) {
-      alert('Gagal memperbarui status: ' + error.message);
-    } else {
+    try {
+      await updateSPKStatus(configItem.id, selectedStatus, completionNotesInput);
       setConfigItem(null);
       fetchFinishedSPK();
+    } catch (err: any) {
+      alert('Gagal memperbarui status: ' + err.message);
     }
   };
 
-  // Eksekusi hapus di arsip
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
 
-    const { error } = await supabase.from('spk_simple').delete().eq('id', deleteTarget.id);
-    if (error) {
-      alert('Gagal menghapus data: ' + error.message);
-    } else {
+    try {
+      await deleteSPK(deleteTarget.id);
       setDeleteTarget(null);
       fetchFinishedSPK();
+    } catch (err: any) {
+      alert('Gagal menghapus data: ' + err.message);
     }
   };
 
   const openConfig = (item: SPKSimple) => {
-    setConfigItem(item);
-    setSelectedStatus(item.item_status);
-    setCompletionNotesInput(item.completion_notes || '');
-    setNotesError(false);
+    requireAuth(() => {
+      setConfigItem(item);
+      setSelectedStatus(item.item_status);
+      setCompletionNotesInput(item.completion_notes || '');
+      setNotesError(false);
+    });
   };
 
   const filteredData = data.filter((item) => {
@@ -155,7 +156,6 @@ export default function ORMOVHistoryPage() {
       `}</style>
 
       <main className="mx-auto max-w-6xl px-4 pb-16 md:px-8">
-        {/* Section Header dengan Tombol "Kembali ke Monitoring" */}
         <section className="py-8">
           <p className="inline-flex items-center gap-2 text-sm text-[#5B7276]">
             <Archive className="h-4 w-4" /> Arsip dan laporan
@@ -166,7 +166,6 @@ export default function ORMOVHistoryPage() {
               <span className="text-xl font-medium text-[#5B7276] md:text-2xl">SPK sudah selesai</span>
             </h1>
 
-            {/* TOMBOL KEMBALI KE HALAMAN DASHBOARD */}
             <Link
               href="/dashboard"
               className={`${focus} inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-[#10262B] ring-1 ring-[#D5DEDB] transition hover:bg-[#F7F9F8] hover:ring-[#9DB0B3] active:scale-[0.98]`}
@@ -256,51 +255,73 @@ export default function ORMOVHistoryPage() {
             </div>
           ) : (
             <ul>
-              {filteredData.map((item) => (
-                <li
-                  key={item.id}
-                  className="grid gap-x-6 gap-y-3 border-b border-[#EEF2F0] px-5 py-5 transition-colors last:border-0 hover:bg-[#F7F9F8] md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_auto] md:items-start md:px-6"
-                >
-                  <div className="min-w-0">
-                    <p className={`${display.className} truncate text-lg font-bold leading-tight`}>{item.doc_number}</p>
-                    <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-[#5B7276]">
-                      <CalendarDays className="h-3.5 w-3.5" /> {fmtDate(item.handover_date)}
-                    </p>
-                    <span className="mt-2 flex w-fit items-center gap-1.5 rounded-full bg-[#DDF3EA] px-2.5 py-1 text-xs font-semibold text-[#0B6B4F]">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Selesai
-                    </span>
-                  </div>
-
-                  <p className="text-sm leading-relaxed text-[#2B4045]">{item.purpose_notes || '–'}</p>
-
-                  <div className="text-sm">
-                    {item.completion_notes ? (
-                      <div className="whitespace-pre-line rounded-xl bg-[#F1F4F2] p-3 leading-relaxed text-[#2B4045]">
-                        {item.completion_notes}
+              {filteredData.map((item) => {
+                const durationDays = getCompletionDuration(item.handover_date, item.updated_at || item.created_at);
+                return (
+                  <li
+                    key={item.id}
+                    className="grid gap-x-6 gap-y-3 border-b border-[#EEF2F0] px-5 py-5 transition-colors last:border-0 hover:bg-[#F7F9F8] md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_auto] md:items-start md:px-6"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className={`${display.className} truncate text-lg font-bold leading-tight`}>{item.doc_number}</p>
+                        {item.label_text && (() => {
+                          const [bgClass, textClass] = (item.label_color || 'bg-[#DDF3EA]|text-[#0B6B4F]').split('|');
+                          return (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${bgClass} ${textClass}`}>
+                              {item.label_text}
+                            </span>
+                          );
+                        })()}
                       </div>
-                    ) : (
-                      <span className="text-[#7F9296]">Selesai penuh</span>
-                    )}
-                  </div>
+                      <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-[#5B7276]">
+                        <CalendarDays className="h-3.5 w-3.5" /> {fmtDate(item.handover_date)}
+                      </p>
+                      
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#DDF3EA] px-2.5 py-1 text-xs font-semibold text-[#0B6B4F]">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Selesai
+                        </span>
+                        {durationDays !== null && (
+                          <span className="text-xs font-medium text-[#5B7276]">
+                            ({durationDays === 0 ? 'Selesai di hari yang sama' : `Selesai dalam ${durationDays} hari`})
+                          </span>
+                        )}
+                      </div>
+                    </div>
 
-                  <div className="flex items-center justify-end gap-2 md:w-36">
-                    <button
-                      onClick={() => openConfig(item)}
-                      className={`${focus} inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[#10262B] ring-1 ring-[#C5D1CE] transition hover:bg-[#10262B] hover:text-white hover:ring-[#10262B]`}
-                      title="Ubah Status"
-                    >
-                      <SlidersHorizontal className="h-3.5 w-3.5" /> <span className="md:hidden">Ubah</span>
-                    </button>
-                    <button
-                      onClick={() => setDeleteTarget(item)}
-                      className={`${focus} inline-flex items-center justify-center rounded-lg p-2 text-[#B4402B] ring-1 ring-[#F2D6D0] transition hover:bg-[#FBE8E5]`}
-                      title="Hapus SPK"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </li>
-              ))}
+                    <p className="text-sm leading-relaxed text-[#2B4045]">{item.purpose_notes || '–'}</p>
+
+                    <div className="text-sm">
+                      {item.completion_notes ? (
+                        <div className="whitespace-pre-line rounded-xl bg-[#F1F4F2] p-3 leading-relaxed text-[#2B4045]">
+                          {item.completion_notes}
+                        </div>
+                      ) : (
+                        <span className="text-[#7F9296]">Selesai penuh</span>
+                      )}
+                    </div>
+
+                    {/* Kolom Aksi dengan proteksi login */}
+                    <div className="flex items-center justify-end gap-2 md:w-36">
+                      <button
+                        onClick={() => openConfig(item)}
+                        className={`${focus} inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[#10262B] ring-1 ring-[#C5D1CE] transition hover:bg-[#10262B] hover:text-white hover:ring-[#10262B]`}
+                        title="Ubah Status"
+                      >
+                        <SlidersHorizontal className="h-3.5 w-3.5" /> <span className="md:hidden">Ubah</span>
+                      </button>
+                      <button
+                        onClick={() => requireAuth(() => setDeleteTarget(item))}
+                        className={`${focus} inline-flex items-center justify-center rounded-lg p-2 text-[#B4402B] ring-1 ring-[#F2D6D0] transition hover:bg-[#FBE8E5]`}
+                        title="Hapus SPK"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
@@ -409,13 +430,15 @@ export default function ORMOVHistoryPage() {
         </div>
       )}
 
-      {/* Modal Konfirmasi Hapus */}
       <DeleteConfirmModal
         isOpen={!!deleteTarget}
         docNumber={deleteTarget?.doc_number || ''}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleConfirmDelete}
       />
+
+      {/* Modal Login otomatis muncul jika user belum login dan menekan tombol fitur terbatas */}
+      <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
     </div>
   );
 }
