@@ -102,12 +102,10 @@ export default function PPICPlanningProgressPage() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
 
-  // Proteksi Halaman: Cek apakah user adalah Super Admin dengan normalisasi string
   useEffect(() => {
     const userRole = sessionStorage.getItem('ormov_user_role') || localStorage.getItem('ormov_user_role');
     const normalizedRole = userRole ? userRole.toLowerCase().replace(/[\s_-]/g, '') : '';
     
-    // 'super_admin' dari Supabase akan dinormalisasi menjadi 'superadmin'
     if (normalizedRole === 'superadmin') {
       setIsAuthorized(true);
     } else {
@@ -117,7 +115,6 @@ export default function PPICPlanningProgressPage() {
     }
   }, [router]);
 
-  // Jika belum terverifikasi, tampilkan loading/pemberitahuan pengecekan
   if (!isAuthorized) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F1F4F2] text-[#12292D]">

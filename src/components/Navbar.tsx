@@ -152,7 +152,8 @@ export default function Navbar() {
                     isAccountOpen ? 'bg-white/[0.13]' : ''
                   }`}
                 >
-                  <Avatar name={username} />
+                  {/* DIPERBAIKI: Menggunakan (username || '') */}
+                  <Avatar name={username || ''} />
                   <span className="hidden min-w-0 text-left leading-tight md:block">
                     <span className="block max-w-[10rem] truncate text-[13px] font-semibold">{username}</span>
                     <span className="block text-[11px] font-medium text-[#5EEAD4]">{roleLabel}</span>
@@ -170,7 +171,8 @@ export default function Navbar() {
                     <div className="bg-[#F1F4F2] p-4">
                       <p className="text-[11px] font-medium text-[#7F9296]">Masuk sebagai</p>
                       <div className="mt-2 flex items-center gap-3">
-                        <Avatar name={username} size="lg" />
+                        {/* DIPERBAIKI: Menggunakan (username || '') */}
+                        <Avatar name={username || ''} size="lg" />
                         <div className="min-w-0">
                           <p className="truncate text-sm font-bold">{username}</p>
                           <span
@@ -203,7 +205,6 @@ export default function Navbar() {
                 )}
               </div>
             ) : (
-              /* Tombol Masuk yang Diperbarui (Lebih rapi, rounded proporsional, dan efek interaktif halus) */
               <button
                 onClick={() => setIsLoginModalOpen(true)}
                 className={`${focus} group inline-flex h-10 items-center gap-2 rounded-xl bg-[#0F766E] px-4 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:bg-[#0D645D] hover:shadow-md hover:ring-2 hover:ring-[#2DD4BF]/40 active:scale-[0.98] md:text-sm`}
