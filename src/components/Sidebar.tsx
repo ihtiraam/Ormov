@@ -70,7 +70,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isDashboardGroupActive = pathname === '/dashboard' || pathname === '/history';
+  // Diperbarui: Mendeteksi apakah user berada di /dashboard atau /dashboard/history
+  const isDashboardGroupActive = pathname === '/dashboard' || pathname.startsWith('/dashboard/history');
 
   // State untuk mengontrol dropdown (langsung terbuka jika halaman aktif ada di dalam grup)
   const [isDropdownOpen, setIsDropdownOpen] = useState(isDashboardGroupActive);
@@ -134,7 +135,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     setIsDropdownOpen((prev) => !prev);
   };
 
-  const is = (href: string) => pathname === href || pathname.startsWith(href + '/');
+  const is = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href + '/'));
 
   return (
     <>
@@ -201,8 +202,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               >
                 <div className="overflow-hidden">
                   <div className="ml-7 mt-1 space-y-0.5 border-l border-white/10 pl-3">
-                    <SubLink href="/dashboard" icon={LayoutDashboard} label="Monitoring" active={is('/dashboard')} focusable={isDropdownOpen} onNavigate={onClose} />
-                    <SubLink href="/history" icon={Archive} label="Arsip" active={is('/history')} focusable={isDropdownOpen} onNavigate={onClose} />
+                    <SubLink href="/dashboard" icon={LayoutDashboard} label="Monitoring" active={pathname === '/dashboard'} focusable={isDropdownOpen} onNavigate={onClose} />
+                    {/* Diperbarui: Mengarah ke /dashboard/history */}
+                    <SubLink href="/dashboard/history" icon={Archive} label="Arsip" active={pathname === '/dashboard/history'} focusable={isDropdownOpen} onNavigate={onClose} />
                   </div>
                 </div>
               </div>

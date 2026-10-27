@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { LayoutDashboard, Hash, CalendarCheck, ArrowRight, Lock } from 'lucide-react';
+import { LayoutDashboard, ListTodo, CalendarCheck, ArrowRight, Lock } from 'lucide-react';
 import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
 import LoginModal from '@/components/LoginModal';
 
@@ -14,7 +14,7 @@ type ModuleDef = {
   title: string;
   desc: string;
   cta: string;
-  icon: typeof Hash;
+  icon: typeof ListTodo;
   tint: string;
 };
 
@@ -33,11 +33,11 @@ const MODULES = {
     icon: CalendarCheck,
     tint: 'bg-[#FBEFD5] text-[#9A5B0B] group-hover:bg-[#D98E1F] group-hover:text-white',
   },
-  lot: {
-    title: 'Nomor Lot Produksi',
-    desc: 'Modul pengelolaan dan penomoran lot produk.',
-    cta: 'Akses Modul',
-    icon: Hash,
+  tasks: {
+    title: 'Task Manager',
+    desc: 'Catat urutan agenda pekerjaan harianmu.',
+    cta: 'Buka Agenda',
+    icon: ListTodo,
     tint: 'bg-[#E4EAFB] text-[#2D4FB3] group-hover:bg-[#3F63D6] group-hover:text-white',
   },
 } satisfies Record<string, ModuleDef>;
@@ -74,40 +74,46 @@ export default function OrmovHomeHub() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [todayLabel, setTodayLabel] = useState('');
 
-  // Cek sesi pertama kali halaman/web dibuka
   useEffect(() => {
     const hasLoggedInSession = sessionStorage.getItem('ormov_session_active');
 
-    // Jika belum ada sesi di tab/browser ini, tampilkan Modal Login otomatis
     if (!hasLoggedInSession) {
       setIsLoginModalOpen(true);
     }
 
-    // Tanggal diisi di client agar tidak bentrok dengan render server
     setTodayLabel(
       new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
     );
   }, []);
 
-  // Fungsi untuk menutup modal sekaligus menyimpan penanda sesi aktif
   const handleCloseModal = () => {
     sessionStorage.setItem('ormov_session_active', 'true');
     setIsLoginModalOpen(false);
   };
 
-  // Handler khusus untuk klik Card PPIC (Validasi Role Super Admin dengan Normalisasi)
   const handlePPICClick = (e: React.MouseEvent) => {
     e.preventDefault();
 
     const userRole = sessionStorage.getItem('ormov_user_role') || localStorage.getItem('ormov_user_role');
-
-    // Normalisasi role agar aman mendeteksi 'super_admin' dari Supabase
     const normalizedRole = userRole ? userRole.toLowerCase().replace(/[\s_-]/g, '') : '';
 
     if (normalizedRole === 'superadmin') {
       router.push('/ppic');
     } else {
-      // Jika bukan super admin, langsung buka modal login agar mereka bisa switch akun
+      setIsLoginModalOpen(true);
+    }
+  };
+
+  // Diubah mengarah ke /taskmanager
+  const handleTasksClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+
+    const userRole = sessionStorage.getItem('ormov_user_role') || localStorage.getItem('ormov_user_role');
+    const normalizedRole = userRole ? userRole.toLowerCase().replace(/[\s_-]/g, '') : '';
+
+    if (normalizedRole === 'superadmin') {
+      router.push('/taskmanager');
+    } else {
       setIsLoginModalOpen(true);
     }
   };
@@ -143,9 +149,8 @@ export default function OrmovHomeHub() {
           </div>
         </section>
 
-        {/* Kartu modul: menumpuk sedikit di atas hero */}
+        {/* Kartu modul */}
         <div className="relative z-10 -mt-14 grid gap-5 px-2 sm:px-4 md:-mt-16 md:grid-cols-2 md:px-6 lg:grid-cols-3">
-          {/* Card 1: Dashboard Monitoring SPK */}
           <Link href="/dashboard" className={`${focus} ${cardClass}`}>
             <CardBody
               m={MODULES.spk}
@@ -157,7 +162,6 @@ export default function OrmovHomeHub() {
             />
           </Link>
 
-          {/* Card 2: PPIC (dibatasi khusus Super Admin) */}
           <button type="button" onClick={handlePPICClick} className={`${focus} ${cardClass} cursor-pointer`}>
             <CardBody
               m={MODULES.ppic}
@@ -169,16 +173,21 @@ export default function OrmovHomeHub() {
             />
           </button>
 
-          {/* Card 3: Nomor Lot Produksi */}
-          <Link href="/lot" className={`${focus} ${cardClass}`}>
-            <CardBody m={MODULES.lot} />
-          </Link>
+          <button type="button" onClick={handleTasksClick} className={`${focus} ${cardClass} cursor-pointer`}>
+            <CardBody
+              m={MODULES.tasks}
+              chip={
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#FBEFD5] px-2.5 py-1 text-[11px] font-semibold text-[#9A5B0B] ring-1 ring-[#F0D9A8]">
+                  <Lock className="h-3 w-3" /> Super Admin
+                </span>
+              }
+            />
+          </button>
         </div>
 
         <p className="mt-8 text-center text-xs text-[#7F9296]">Modul baru akan ditambahkan secara berkala.</p>
       </main>
 
-      {/* Login Modal Otomatis saat Pertama Buka Web */}
       <LoginModal isOpen={isLoginModalOpen} onClose={handleCloseModal} />
     </div>
   );
