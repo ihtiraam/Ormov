@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, ChevronDown, X } from 'lucide-react';
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -10,10 +10,12 @@ export interface DateFilterValue {
   end: string;
 }
 
-interface DateRangeFilterProps {
+export interface DateRangeFilterProps {
   value: DateFilterValue | null;
   onChange: (val: DateFilterValue | null) => void;
   todayStr: string;
+  yesterdayStr?: string; // <-- Tambahan agar tidak error TS di build Vercel
+  tomorrowStr?: string;  // <-- Tambahan agar tidak error TS di build Vercel
   formatLabel: (dateStr: string) => string;
   taskDates?: string[];
   placeholder?: string;
