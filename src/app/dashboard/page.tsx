@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import {
   Search, RefreshCw, SlidersHorizontal, ChevronRight, CalendarDays, ClipboardList, Trash2, Plus, Archive,
@@ -9,9 +9,9 @@ import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
 import AddSPKModal from '@/components/AddSPKModal';
 import StatusConfigModal from '@/components/StatusConfigModal';
 import DetailDrawer from '@/components/DetailDrawer';
-import DateRangeFilter from '@/components/DateRangeFilter';
+import DateRangeFilter, { DateFilterValue } from '@/components/DateRangeFilter';
 import DeleteConfirmModal from '@/components/DeleteConfirmModal';
-import LoginModal from '@/components/LoginModal'; // Modal Login
+import LoginModal from '@/components/LoginModal';
 
 // Import service backend & Auth Context
 import { getActiveSPK, createSPK, updateSPKStatus, deleteSPK, SPKSimple, ItemStatus } from '@/services/spkService';
@@ -30,6 +30,13 @@ const STATUS: Record<ItemStatus, { label: string; step: number; text: string; bg
   SELESAI: { label: 'Selesai', step: 3, text: 'text-[#0B6B4F]', bg: 'bg-[#DDF3EA]', bar: 'bg-[#16976F]' },
 };
 
+const pad = (n: number) => String(n).padStart(2, '0');
+const toLocalISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseLocal = (s: string) => {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
 const daysSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -46,24 +53,28 @@ function ProgressTrack({ status }: { status: ItemStatus }) {
 }
 
 export default function ORMOVMainDashboard() {
-  const { isLoggedIn } = useAuth(); // Cek status login dari AuthContext yang baru
+  const { isLoggedIn } = useAuth();
   const [data, setData] = useState<SPKSimple[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filter, setFilter] = useState<Filter>('SEMUA');
 
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
+  // Filter tanggal menggunakan DateFilterValue dari DateRangeFilter
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null);
+
+  // Tanggal acuan di-mount via useEffect agar aman dari prerender SSR Next.js
+  const [dateWindow, setDateWindow] = useState<{ yesterday: string; today: string; tomorrow: string }>({
+    yesterday: '',
+    today: '',
+    tomorrow: '',
+  });
 
   const [detailItem, setDetailItem] = useState<SPKSimple | null>(null);
   const [configItem, setConfigItem] = useState<SPKSimple | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [deleteTarget, setDeleteTarget] = useState<SPKSimple | null>(null);
-  
-  // State untuk kontrol Modal Login interaktif
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
 
-  // Helper untuk mengecek otorisasi sebelum menjalankan aksi
   const requireAuth = (action: () => void) => {
     if (!isLoggedIn) {
       setIsLoginModalOpen(true);
@@ -85,6 +96,18 @@ export default function ORMOVMainDashboard() {
   };
 
   useEffect(() => {
+    const now = new Date();
+    const y = new Date();
+    y.setDate(now.getDate() - 1);
+    const tm = new Date();
+    tm.setDate(now.getDate() + 1);
+
+    setDateWindow({
+      yesterday: toLocalISO(y),
+      today: toLocalISO(now),
+      tomorrow: toLocalISO(tm),
+    });
+
     fetchActiveSPK();
     const channel = supabase
       .channel('spk_changes')
@@ -94,6 +117,13 @@ export default function ORMOVMainDashboard() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  const formatDateLabel = (dateStr: string) => {
+    if (dateWindow.yesterday && dateStr === dateWindow.yesterday) return 'Kemarin';
+    if (dateWindow.today && dateStr === dateWindow.today) return 'Hari Ini';
+    if (dateWindow.tomorrow && dateStr === dateWindow.tomorrow) return 'Besok';
+    return parseLocal(dateStr).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' });
+  };
 
   const handleCreateSPK = async (
     docNumber: string,
@@ -150,8 +180,9 @@ export default function ORMOVMainDashboard() {
     const matchFilter = filter === 'SEMUA' || item.item_status === filter;
 
     let matchDate = true;
-    if (startDate && item.handover_date < startDate) matchDate = false;
-    if (endDate && item.handover_date > endDate) matchDate = false;
+    if (dateFilter) {
+      matchDate = item.handover_date >= dateFilter.start && item.handover_date <= dateFilter.end;
+    }
 
     return matchSearch && matchFilter && matchDate;
   });
@@ -161,6 +192,8 @@ export default function ORMOVMainDashboard() {
     { key: 'BELUM_SELESAI', label: 'Belum selesai' },
     { key: 'HAMPIR_SELESAI', label: 'Hampir selesai' },
   ];
+
+  const allSPKDates = useMemo(() => Array.from(new Set(data.map((d) => d.handover_date))), [data]);
 
   const focus =
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F1F4F2]';
@@ -196,7 +229,6 @@ export default function ORMOVMainDashboard() {
                 <Archive className="h-4 w-4" /> Arsip
               </Link>
 
-              {/* Tombol Buat SPK Baru dengan proteksi login */}
               <button
                 onClick={() => requireAuth(() => setIsAddModalOpen(true))}
                 className={`${focus} inline-flex items-center justify-center gap-2 rounded-xl bg-[#0F766E] px-4 py-2.5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_8px_18px_-8px_rgba(15,118,110,0.75)] transition hover:bg-[#0D645D] active:scale-[0.98]`}
@@ -249,13 +281,15 @@ export default function ORMOVMainDashboard() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Filter Kalender Rentang Tanggal Modular */}
             <DateRangeFilter
-              startDate={startDate}
-              endDate={endDate}
-              onChange={(start, end) => {
-                setStartDate(start);
-                setEndDate(end);
-              }}
+              value={dateFilter}
+              onChange={setDateFilter}
+              todayStr={dateWindow.today}
+              yesterdayStr={dateWindow.yesterday}
+              tomorrowStr={dateWindow.tomorrow}
+              formatLabel={formatDateLabel}
+              taskDates={allSPKDates}
             />
 
             <div className="relative flex-1 lg:w-72">
@@ -307,7 +341,7 @@ export default function ORMOVMainDashboard() {
               <p className="mt-1 max-w-sm text-sm text-[#5B7276]">
                 {data.length === 0
                   ? 'Buat SPK baru untuk mulai memantau penyerahan barang.'
-                  : 'Coba kata kunci lain atau ganti filter status / tanggal.'}
+                  : 'Coba kata kunci lain atau sesuaikan filter status / tanggal.'}
               </p>
             </div>
           ) : (
@@ -362,7 +396,6 @@ export default function ORMOVMainDashboard() {
                       <ProgressTrack status={item.item_status} />
                     </div>
 
-                    {/* Kolom Aksi dengan proteksi login */}
                     <div className="flex items-center justify-end gap-2 md:w-36">
                       <button
                         onClick={() => requireAuth(() => setConfigItem(item))}
@@ -408,7 +441,6 @@ export default function ORMOVMainDashboard() {
         onConfirm={handleConfirmDelete}
       />
 
-      {/* Modal Login otomatis muncul jika user belum login dan menekan tombol fitur terbatas */}
       <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
     </div>
   );

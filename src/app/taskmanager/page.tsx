@@ -7,6 +7,7 @@ import {
 import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
 import { getTasks, createTask, updateTask, deleteTask as removeTaskService, Task } from '@/services/taskServices';
 import TaskForm from '@/components/TaskForm';
+import DateRangeFilter, { DateFilterValue } from '@/components/DateRangeFilter';
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
 const body = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'] });
@@ -16,15 +17,6 @@ const toLocalISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${p
 const parseLocal = (s: string) => {
   const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d);
-};
-
-const formatDateLabel = (dateStr: string) => {
-  const today = new Date();
-  const tomorrow = new Date();
-  tomorrow.setDate(today.getDate() + 1);
-  if (dateStr === toLocalISO(today)) return 'Hari Ini';
-  if (dateStr === toLocalISO(tomorrow)) return 'Besok';
-  return parseLocal(dateStr).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' });
 };
 
 const formatFullDate = (dateStr: string) =>
@@ -66,23 +58,51 @@ function DeleteButton({ onClick, label }: { onClick: () => void; label: string }
 
 export default function TaskManagerPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
 
+  const [dateWindow, setDateWindow] = useState<{ yesterday: string; today: string; tomorrow: string }>({
+    yesterday: '',
+    today: '',
+    tomorrow: '',
+  });
+
+  const [appliedFilter, setAppliedFilter] = useState<DateFilterValue | null>(null);
   const lastCheckedDateRef = useRef('');
 
+  const computeDateWindow = () => {
+    const now = new Date();
+    const y = new Date();
+    y.setDate(now.getDate() - 1);
+    const tm = new Date();
+    tm.setDate(now.getDate() + 1);
+
+    return {
+      yesterday: toLocalISO(y),
+      today: toLocalISO(now),
+      tomorrow: toLocalISO(tm),
+    };
+  };
+
   useEffect(() => {
-    lastCheckedDateRef.current = toLocalISO(new Date());
-    loadTasks();
+    const win = computeDateWindow();
+    setDateWindow(win);
+    lastCheckedDateRef.current = win.today;
+    loadTasks(win.today);
   }, []);
 
-  const loadTasks = async () => {
+  const formatDateLabel = (dateStr: string) => {
+    if (dateWindow.yesterday && dateStr === dateWindow.yesterday) return 'Kemarin';
+    if (dateWindow.today && dateStr === dateWindow.today) return 'Hari Ini';
+    if (dateWindow.tomorrow && dateStr === dateWindow.tomorrow) return 'Besok';
+    return parseLocal(dateStr).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' });
+  };
+
+  const loadTasks = async (overrideToday?: string) => {
     setLoading(true);
     try {
       const data = await getTasks();
-      const todayStr = toLocalISO(new Date());
+      const todayStr = overrideToday || toLocalISO(new Date());
 
-      // Logika reset otomatis untuk rutinitas harian jika sudah berganti hari (00:00)
       const updatedTasks = await Promise.all(
         data.map(async (task) => {
           if (task.isPinned && task.completed && task.deadlineDate !== todayStr) {
@@ -101,7 +121,6 @@ export default function TaskManagerPage() {
     }
   };
 
-  // Pengecekan real-time murni untuk mendeteksi pergantian hari (00:00) agar rutinitas reset otomatis
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date();
@@ -109,17 +128,19 @@ export default function TaskManagerPage() {
 
       if (lastCheckedDateRef.current && currentIsoDate !== lastCheckedDateRef.current) {
         lastCheckedDateRef.current = currentIsoDate;
-        loadTasks();
+        const win = computeDateWindow();
+        setDateWindow(win);
+        loadTasks(currentIsoDate);
       }
-    }, 30000); // Cek tiap 30 detik
+    }, 30000);
 
     return () => clearInterval(interval);
   }, []);
 
   const handleAddTask = async (title: string, time: string, isPinned: boolean) => {
-    const todayStr = toLocalISO(new Date());
+    const currentToday = dateWindow.today || toLocalISO(new Date());
     try {
-      const created = await createTask(title, todayStr, time, isPinned);
+      const created = await createTask(title, currentToday, time, isPinned);
       if (created) {
         setTasks((prev) => [created, ...prev]);
       }
@@ -147,9 +168,7 @@ export default function TaskManagerPage() {
   };
 
   const handleRolloverToTomorrow = async (id: string) => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = toLocalISO(tomorrow);
+    const tomorrowStr = dateWindow.tomorrow || toLocalISO(new Date(Date.now() + 86400000));
 
     setTasks(tasks.map((t) => (t.id === id ? { ...t, deadlineDate: tomorrowStr, completed: false } : t)));
     try {
@@ -227,10 +246,17 @@ export default function TaskManagerPage() {
   const pinnedTasks = tasks.filter((t) => t.isPinned);
   const normalTasks = tasks.filter((t) => !t.isPinned);
 
-  const availableDates = Array.from(new Set(normalTasks.map((t) => t.deadlineDate))).sort();
-
-  const filteredNormalTasks =
-    selectedDateFilter === 'all' ? normalTasks : normalTasks.filter((t) => t.deadlineDate === selectedDateFilter);
+  const filteredNormalTasks = normalTasks.filter((t) => {
+    if (appliedFilter) {
+      return t.deadlineDate >= appliedFilter.start && t.deadlineDate <= appliedFilter.end;
+    }
+    if (!dateWindow.today) return true;
+    return (
+      t.deadlineDate === dateWindow.yesterday ||
+      t.deadlineDate === dateWindow.today ||
+      t.deadlineDate === dateWindow.tomorrow
+    );
+  });
 
   const groupedNormalTasks = filteredNormalTasks.reduce((acc, task) => {
     (acc[task.deadlineDate] ||= []).push(task);
@@ -239,15 +265,17 @@ export default function TaskManagerPage() {
 
   const sortedDateKeys = Object.keys(groupedNormalTasks).sort();
 
-  const activeCount = normalTasks.filter((t) => !t.completed).length;
-  const overdueCount = normalTasks.filter((t) => urgencyOf(t) === 'overdue').length;
-  const doneCount = normalTasks.filter((t) => t.completed).length;
+  const activeCount = filteredNormalTasks.filter((t) => !t.completed).length;
+  const overdueCount = filteredNormalTasks.filter((t) => urgencyOf(t) === 'overdue').length;
+  const doneCount = filteredNormalTasks.filter((t) => t.completed).length;
 
   const stats = [
     { label: 'Agenda aktif', value: activeCount, tone: 'text-white' },
     { label: 'Terlewat', value: overdueCount, tone: overdueCount > 0 ? 'text-[#FF9B8A]' : 'text-white' },
     { label: 'Selesai', value: doneCount, tone: 'text-[#5EEAD4]' },
   ];
+
+  const taskDates = Array.from(new Set(normalTasks.map((t) => t.deadlineDate)));
 
   return (
     <div className={`${body.className} min-h-screen bg-[#F1F4F2] text-[#12292D]`}>
@@ -293,10 +321,8 @@ export default function TaskManagerPage() {
         </section>
 
         <div className="mt-6 grid items-start gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
-          {/* Komponen Form Terpisah */}
           <TaskForm onAdd={handleAddTask} focusClass={focus} />
 
-          {/* Daftar */}
           <div className="min-w-0 space-y-8">
             {loading ? (
               <ul aria-busy="true" className="space-y-3">
@@ -312,7 +338,7 @@ export default function TaskManagerPage() {
               </ul>
             ) : (
               <>
-                {/* Rutinitas (pinned) */}
+                {/* Rutinitas Pinned */}
                 {pinnedTasks.length > 0 && (
                   <section className="rounded-3xl bg-[#FBF3E0] p-4 ring-1 ring-[#F0D9A8] md:p-5">
                     <div className="mb-3 flex items-center justify-between px-1">
@@ -348,37 +374,34 @@ export default function TaskManagerPage() {
                   </section>
                 )}
 
-                {/* Agenda berdasarkan tanggal */}
+                {/* Agenda Berdasarkan Tanggal */}
                 <section className="space-y-5">
-                  <div className="space-y-3">
-                    <h2 className={`${display.className} px-1 text-lg font-bold`}>Agenda berdasarkan tanggal</h2>
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                    <div>
+                      <h2 className={`${display.className} text-lg font-bold`}>Agenda berdasarkan tanggal</h2>
+                      <p className="text-xs text-[#5B7276]">
+                        {appliedFilter ? (
+                          <span className="font-semibold text-[#0F766E]">
+                            {appliedFilter.start === appliedFilter.end
+                              ? `Tanggal: ${formatDateLabel(appliedFilter.start)}`
+                              : `Rentang: ${formatDateLabel(appliedFilter.start)} s/d ${formatDateLabel(appliedFilter.end)}`}
+                          </span>
+                        ) : (
+                          'Menampilkan 3 hari (Kemarin, Hari Ini, Besok)'
+                        )}
+                      </p>
+                    </div>
 
-                    {availableDates.length > 0 && (
-                      <div role="tablist" aria-label="Filter tanggal" className="flex gap-1.5 overflow-x-auto pb-1">
-                        {[{ key: 'all', label: 'Semua', count: normalTasks.length }, ...availableDates.map((d) => ({
-                          key: d,
-                          label: formatDateLabel(d),
-                          count: normalTasks.filter((t) => t.deadlineDate === d).length,
-                        }))].map((f) => {
-                          const active = selectedDateFilter === f.key;
-                          return (
-                            <button
-                              key={f.key}
-                              type="button"
-                              role="tab"
-                              aria-selected={active}
-                              onClick={() => setSelectedDateFilter(f.key)}
-                              className={`${focus} inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition ${
-                                active ? 'bg-[#10262B] text-white' : 'bg-white text-[#44595D] ring-1 ring-[#D5DEDB] hover:ring-[#9DB0B3]'
-                              }`}
-                            >
-                              {f.label}
-                              <span className={`text-xs ${active ? 'text-white/60' : 'text-[#7F9296]'}`}>{f.count}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {/* Komponen Filter Tanggal yang Baru Dipisah */}
+                    <DateRangeFilter
+                      value={appliedFilter}
+                      onChange={setAppliedFilter}
+                      todayStr={dateWindow.today}
+                      yesterdayStr={dateWindow.yesterday}
+                      tomorrowStr={dateWindow.tomorrow}
+                      formatLabel={formatDateLabel}
+                      taskDates={taskDates}
+                    />
                   </div>
 
                   {sortedDateKeys.length === 0 ? (
@@ -387,12 +410,16 @@ export default function TaskManagerPage() {
                         <ListTodo className="h-6 w-6" />
                       </div>
                       <p className={`${display.className} mt-4 text-lg font-bold`}>
-                        {normalTasks.length === 0 ? 'Belum ada agenda' : 'Tidak ada agenda di tanggal ini'}
+                        {appliedFilter
+                          ? 'Tidak ada agenda pada rentang tanggal ini'
+                          : normalTasks.length === 0
+                          ? 'Belum ada agenda'
+                          : 'Tidak ada agenda untuk 3 hari terdekat'}
                       </p>
                       <p className="mt-1 max-w-xs text-sm text-[#5B7276]">
-                        {normalTasks.length === 0
-                          ? 'Tambahkan agenda pertama Anda lewat formulir.'
-                          : 'Coba pilih filter "Semua" atau buat agenda baru.'}
+                        {appliedFilter
+                          ? 'Coba pilih tanggal lain dari kalender atau kembali ke 3 hari default.'
+                          : 'Tambahkan agenda pertama Anda lewat formulir.'}
                       </p>
                     </div>
                   ) : (
@@ -409,7 +436,9 @@ export default function TaskManagerPage() {
                                 <Calendar className="h-4 w-4" />
                               </span>
                               <div>
-                                <h3 className={`${display.className} text-base font-bold leading-tight`}>{formatDateLabel(dateKey)}</h3>
+                                <h3 className={`${display.className} text-base font-bold leading-tight`}>
+                                  {formatDateLabel(dateKey)}
+                                </h3>
                                 <p className="text-xs text-[#7F9296]">{formatFullDate(dateKey)}</p>
                               </div>
                             </div>

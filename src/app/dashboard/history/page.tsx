@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, RefreshCw, Clock, AlertCircle, CheckCircle2, SlidersHorizontal, X, CalendarDays, Archive, Trash2, ArrowLeft } from 'lucide-react';
 import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
-import DateRangeFilter from '@/components/DateRangeFilter';
+import DateRangeFilter, { DateFilterValue } from '@/components/DateRangeFilter';
 import DeleteConfirmModal from '@/components/DeleteConfirmModal';
-import LoginModal from '@/components/LoginModal'; // Modal Login
+import LoginModal from '@/components/LoginModal';
 
 // Import service backend & Auth Context
 import { getFinishedSPK, updateSPKStatus, deleteSPK, SPKSimple, ItemStatus } from '@/services/spkService';
@@ -14,6 +14,13 @@ import { useAuth } from '@/context/AuthContext';
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
 const body = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'] });
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const toLocalISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseLocal = (s: string) => {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
 
 const fmtDate = (iso: string) =>
   iso ? new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '–';
@@ -37,13 +44,20 @@ const OPTIONS: {
 ];
 
 export default function ORMOVHistoryPage() {
-  const { isLoggedIn } = useAuth(); // Menggunakan isLoggedIn dari AuthContext yang baru
+  const { isLoggedIn } = useAuth();
   const [data, setData] = useState<SPKSimple[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
+  // Filter tanggal menggunakan DateFilterValue dari DateRangeFilter
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null);
+
+  // Tanggal acuan di-mount via useEffect agar aman dari prerender SSR Next.js
+  const [dateWindow, setDateWindow] = useState<{ yesterday: string; today: string; tomorrow: string }>({
+    yesterday: '',
+    today: '',
+    tomorrow: '',
+  });
 
   const [configItem, setConfigItem] = useState<SPKSimple | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<ItemStatus>('BELUM_SELESAI');
@@ -51,8 +65,6 @@ export default function ORMOVHistoryPage() {
   const [notesError, setNotesError] = useState<boolean>(false);
 
   const [deleteTarget, setDeleteTarget] = useState<SPKSimple | null>(null);
-  
-  // State untuk kontrol Modal Login interaktif
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
 
   const requireAuth = (action: () => void) => {
@@ -76,6 +88,18 @@ export default function ORMOVHistoryPage() {
   };
 
   useEffect(() => {
+    const now = new Date();
+    const y = new Date();
+    y.setDate(now.getDate() - 1);
+    const tm = new Date();
+    tm.setDate(now.getDate() + 1);
+
+    setDateWindow({
+      yesterday: toLocalISO(y),
+      today: toLocalISO(now),
+      tomorrow: toLocalISO(tm),
+    });
+
     fetchFinishedSPK();
   }, []);
 
@@ -85,6 +109,13 @@ export default function ORMOVHistoryPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [configItem]);
+
+  const formatDateLabel = (dateStr: string) => {
+    if (dateWindow.yesterday && dateStr === dateWindow.yesterday) return 'Kemarin';
+    if (dateWindow.today && dateStr === dateWindow.today) return 'Hari Ini';
+    if (dateWindow.tomorrow && dateStr === dateWindow.tomorrow) return 'Besok';
+    return parseLocal(dateStr).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' });
+  };
 
   const handleRestoreStatus = async () => {
     if (!configItem) return;
@@ -132,14 +163,17 @@ export default function ORMOVHistoryPage() {
       (item.completion_notes && item.completion_notes.toLowerCase().includes(q));
 
     let matchesDate = true;
-    if (startDate && item.handover_date < startDate) matchesDate = false;
-    if (endDate && item.handover_date > endDate) matchesDate = false;
+    if (dateFilter) {
+      matchesDate = item.handover_date >= dateFilter.start && item.handover_date <= dateFilter.end;
+    }
 
     return matchesSearch && matchesDate;
   });
 
-  const hasFilter = !!(searchTerm || startDate || endDate);
+  const hasFilter = !!(searchTerm || dateFilter);
   const goesBack = selectedStatus !== 'SELESAI';
+
+  const allSPKDates = useMemo(() => Array.from(new Set(data.map((d) => d.handover_date))), [data]);
 
   const focus =
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F1F4F2]';
@@ -188,13 +222,15 @@ export default function ORMOVHistoryPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Filter Kalender Rentang Tanggal Modular */}
             <DateRangeFilter
-              startDate={startDate}
-              endDate={endDate}
-              onChange={(start, end) => {
-                setStartDate(start);
-                setEndDate(end);
-              }}
+              value={dateFilter}
+              onChange={setDateFilter}
+              todayStr={dateWindow.today}
+              yesterdayStr={dateWindow.yesterday}
+              tomorrowStr={dateWindow.tomorrow}
+              formatLabel={formatDateLabel}
+              taskDates={allSPKDates}
             />
           </div>
 
@@ -203,8 +239,7 @@ export default function ORMOVHistoryPage() {
               <button
                 onClick={() => {
                   setSearchTerm('');
-                  setStartDate('');
-                  setEndDate('');
+                  setDateFilter(null);
                 }}
                 className={`${focus} rounded-full px-3 py-2 text-sm font-medium text-[#0F766E] hover:bg-[#E1ECE9]`}
               >
@@ -302,7 +337,6 @@ export default function ORMOVHistoryPage() {
                       )}
                     </div>
 
-                    {/* Kolom Aksi dengan proteksi login */}
                     <div className="flex items-center justify-end gap-2 md:w-36">
                       <button
                         onClick={() => openConfig(item)}
@@ -315,6 +349,7 @@ export default function ORMOVHistoryPage() {
                         onClick={() => requireAuth(() => setDeleteTarget(item))}
                         className={`${focus} inline-flex items-center justify-center rounded-lg p-2 text-[#B4402B] ring-1 ring-[#F2D6D0] transition hover:bg-[#FBE8E5]`}
                         title="Hapus SPK"
+                        aria-label={`Hapus ${item.doc_number}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -437,7 +472,6 @@ export default function ORMOVHistoryPage() {
         onConfirm={handleConfirmDelete}
       />
 
-      {/* Modal Login otomatis muncul jika user belum login dan menekan tombol fitur terbatas */}
       <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
     </div>
   );
