@@ -27,7 +27,7 @@ const MODULES = {
     tint: 'bg-[#E1ECE9] text-[#0F766E] group-hover:bg-[#0F766E] group-hover:text-white',
   },
   ppic: {
-    title: 'PPIC Planning & Progress',
+    title: 'PPIC & Production Planning',
     desc: 'Monitoring perencanaan dan progres target PPIC.',
     cta: 'Pantau Progres',
     icon: CalendarCheck,

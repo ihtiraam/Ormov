@@ -21,9 +21,14 @@ export interface UpsertInventoryPayload {
   unit?: string;
 }
 
+export interface StockUpdatePayload {
+  item_code: string;
+  current_stock: number;
+}
+
 export const ppicService = {
   /**
-   * Mengambil seluruh data stok inventaris dari Supabase tanpa batas 1000 data
+   * Mengambil seluruh data stok inventaris dari Supabase tanpa batasan 1000 data
    */
   async getAll(): Promise<InventoryStock[]> {
     let allData: any[] = [];
@@ -65,7 +70,7 @@ export const ppicService = {
   },
 
   /**
-   * Menyimpan / memperbarui daftar stok dalam jumlah banyak (Upsert dari file Excel)
+   * Menyimpan / memperbarui daftar stok dalam jumlah banyak (initial import)
    */
   async bulkUpsert(items: UpsertInventoryPayload[]): Promise<number> {
     const { error } = await supabase
@@ -81,13 +86,115 @@ export const ppicService = {
   },
 
   /**
-   * Memperbarui detail satu data barang
+   * Sinkronisasi Stok Saja:
+   * Hanya mencocokkan kode barang dan memperbarui angka `current_stock`.
+   * Tidak menambah data baru, tidak mengubah nama, kategori, maupun avg sales.
+   */
+  async syncStockOnly(
+    incomingStocks: StockUpdatePayload[]
+  ): Promise<{ updatedCount: number; matchedCount: number; ignoredCount: number }> {
+    if (incomingStocks.length === 0) {
+      return { updatedCount: 0, matchedCount: 0, ignoredCount: 0 };
+    }
+
+    // 1. Ambil seluruh data barang yang ada di database untuk referensi pencocokan
+    let allExisting: { id: string; item_code: string; current_stock: number }[] = [];
+    let from = 0;
+    const step = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('ppic_inventory')
+        .select('id, item_code, current_stock')
+        .range(from, from + step - 1);
+
+      if (error) {
+        console.error('Gagal mengambil data existing:', error);
+        throw new Error(error.message || 'Gagal mengambil data pembanding di database');
+      }
+
+      if (data && data.length > 0) {
+        allExisting = [...allExisting, ...data];
+        if (data.length < step) {
+          hasMore = false;
+        } else {
+          from += step;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+    // Buat Map untuk pencarian instan O(1) berdasarkan item_code (case-insensitive)
+    const existingMap = new Map<string, { id: string; current_stock: number }>();
+    allExisting.forEach((item) => {
+      if (item.item_code) {
+        existingMap.set(item.item_code.trim().toLowerCase(), {
+          id: item.id,
+          current_stock: Number(item.current_stock) || 0,
+        });
+      }
+    });
+
+    // 2. Pilah barang yang cocok dan hanya yang angkanya memang berubah
+    const itemsToUpdate: { id: string; current_stock: number }[] = [];
+    let matchedCount = 0;
+    let ignoredCount = 0;
+
+    incomingStocks.forEach((inc) => {
+      const target = existingMap.get(inc.item_code.trim().toLowerCase());
+      if (target) {
+        matchedCount++;
+        if (target.current_stock !== inc.current_stock) {
+          itemsToUpdate.push({
+            id: target.id,
+            current_stock: inc.current_stock,
+          });
+        }
+      } else {
+        ignoredCount++;
+      }
+    });
+
+    // Jika tidak ada perubahan angka stok sama sekali
+    if (itemsToUpdate.length === 0) {
+      return { updatedCount: 0, matchedCount, ignoredCount };
+    }
+
+    // 3. Update stok secara concurrent batch agar cepat dan stabil
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < itemsToUpdate.length; i += BATCH_SIZE) {
+      const batch = itemsToUpdate.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map((item) =>
+          supabase
+            .from('ppic_inventory')
+            .update({
+              current_stock: item.current_stock,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', item.id)
+        )
+      );
+    }
+
+    return {
+      updatedCount: itemsToUpdate.length,
+      matchedCount,
+      ignoredCount,
+    };
+  },
+
+  /**
+   * Memperbarui detail satu data barang (termasuk kategori)
    */
   async updateItem(
     id: string,
     payload: {
       itemCode: string;
       itemName: string;
+      category?: string;
       currentStock: number;
       monthlyAvgSales: number;
     }
@@ -97,6 +204,7 @@ export const ppicService = {
       .update({
         item_code: payload.itemCode,
         item_name: payload.itemName,
+        category: payload.category || 'General',
         current_stock: payload.currentStock,
         monthly_avg_sales: payload.monthlyAvgSales,
         updated_at: new Date().toISOString(),

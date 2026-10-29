@@ -6,12 +6,11 @@ import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import {
   ArrowLeft, Search, ShieldAlert, Boxes, X, UploadCloud, Loader2, CheckCircle2, AlertCircle,
-  Settings2, Pencil, Trash2, Check, PackagePlus, RefreshCw, Lock, Minus, Plus,
+  Pencil, Trash2, Check, RefreshCw, Lock,
 } from 'lucide-react';
 import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
 
-// Import service PPIC yang baru dibuat
-import { ppicService, InventoryStock, UpsertInventoryPayload } from '@/services/ppicService';
+import { ppicService, InventoryStock, StockUpdatePayload } from '@/services/ppicService';
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['500', '700', '800'] });
 const body = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'] });
@@ -26,7 +25,6 @@ const inputCls =
   'w-full rounded-xl bg-white px-3.5 py-2.5 text-sm ring-1 ring-[#C5D1CE] placeholder:text-[#8FA0A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]';
 const labelCls = 'mb-1.5 block text-sm font-semibold text-[#44595D]';
 
-/* Kerangka modal bersama: latar redup, Escape untuk menutup, header seragam */
 function ModalShell({
   title, onClose, children, maxW = 'max-w-md',
 }: { title: string; onClose: () => void; children: React.ReactNode; maxW?: string }) {
@@ -72,22 +70,20 @@ export default function PPICPlanningProgressPage() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'AMAN' | 'KURANG'>('ALL');
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
 
-  // Target bulan restock (default 4 bulan)
-  const [targetMonths, setTargetMonths] = useState<number>(4);
-  const [isSettingMonthOpen, setIsSettingMonthOpen] = useState<boolean>(false);
-  const [tempMonths, setTempMonths] = useState<number>(4);
-
   // State Edit Item
   const [editingItem, setEditingItem] = useState<InventoryStock | null>(null);
 
-  // State Modal Import Excel
+  // State Modal Import Excel (Sinkronisasi Stok)
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
   const [isImportLoading, setIsImportLoading] = useState<boolean>(false);
   const [importProgress, setImportProgress] = useState<string>('');
-  const [importSummary, setImportSummary] = useState<{ total: number; success: number } | null>(null);
+  const [importSummary, setImportSummary] = useState<{
+    totalInFile: number;
+    matched: number;
+    updated: number;
+  } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
-  // Cek Role Super Admin
   useEffect(() => {
     const userRole = sessionStorage.getItem('ormov_user_role') || localStorage.getItem('ormov_user_role');
     const normalizedRole = userRole ? userRole.toLowerCase().replace(/[\s_-]/g, '') : '';
@@ -102,7 +98,6 @@ export default function PPICPlanningProgressPage() {
     }
   }, [router]);
 
-  // 1. Memuat seluruh data inventaris lewat service
   const loadInventoryData = async () => {
     setLoadingData(true);
     try {
@@ -115,7 +110,7 @@ export default function PPICPlanningProgressPage() {
     }
   };
 
-  // 2. Parser Excel & Simpan Seluruh Data Lewat ppicService.bulkUpsert
+  // Parser Excel: Hanya baca KODE & STOK untuk mengupdate angka stok
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -123,7 +118,7 @@ export default function PPICPlanningProgressPage() {
     setIsImportLoading(true);
     setImportError(null);
     setImportSummary(null);
-    setImportProgress('Membaca file Excel...');
+    setImportProgress('Membaca file Excel stok harian...');
 
     try {
       const buffer = await file.arrayBuffer();
@@ -133,56 +128,43 @@ export default function PPICPlanningProgressPage() {
 
       const rawData: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
-      const parsedItems: UpsertInventoryPayload[] = rawData
+      const incomingStocks: StockUpdatePayload[] = rawData
         .map((row) => {
           const kodeKey = Object.keys(row).find((k) => k.trim().toUpperCase() === 'KODE') || 'KODE';
-          const barangKey = Object.keys(row).find((k) => k.trim().toUpperCase() === 'BARANG') || 'BARANG';
           const stokKey =
             Object.keys(row).find((k) => k.trim().toUpperCase().includes('STOK')) || 'STOK GD CENTER';
-          const keluarKey =
-            Object.keys(row).find((k) => k.trim().toUpperCase().includes('KELUAR')) || 'TOTAL KELUAR';
 
           const itemCode = String(row[kodeKey] || '').trim();
-          const itemName = String(row[barangKey] || '').trim();
-
           const rawStok = String(row[stokKey]).replace(/[^\d-]/g, '');
           const currentStock = isNaN(parseInt(rawStok, 10)) ? 0 : Math.max(0, parseInt(rawStok, 10));
 
-          const rawKeluar = String(row[keluarKey]).replace(/[^\d-]/g, '');
-          const totalKeluarTahun = isNaN(parseInt(rawKeluar, 10)) ? 0 : Math.max(0, parseInt(rawKeluar, 10));
-          const monthlyAvgSales = parseFloat((totalKeluarTahun / 12).toFixed(1));
-
           return {
             item_code: itemCode,
-            item_name: itemName,
-            category: 'Stok Impor',
             current_stock: currentStock,
-            total_keluar: totalKeluarTahun,
-            monthly_avg_sales: monthlyAvgSales,
-            unit: 'Pcs',
           };
         })
-        .filter((item) => item.item_code !== '' && item.item_name !== '');
+        .filter((item) => item.item_code !== '');
 
-      if (parsedItems.length === 0) {
-        throw new Error('Data tidak ditemukan. Pastikan kolom tabel berisi KODE, BARANG, STOK GD CENTER, dan TOTAL KELUAR.');
+      if (incomingStocks.length === 0) {
+        throw new Error('Data tidak ditemukan. Pastikan file Excel memiliki kolom KODE dan kolom STOK.');
       }
 
-      setImportProgress(`Menyimpan seluruh ${parsedItems.length} data barang ke Supabase...`);
+      setImportProgress(`Mencocokkan dan menyinkronkan stok ${incomingStocks.length} barang...`);
 
-      // Delegasikan operasi database ke service layer
-      const totalSuccess = await ppicService.bulkUpsert(parsedItems);
+      // Panggil fungsi sync stok di service
+      const res = await ppicService.syncStockOnly(incomingStocks);
 
       setImportSummary({
-        total: parsedItems.length,
-        success: totalSuccess,
+        totalInFile: incomingStocks.length,
+        matched: res.matchedCount,
+        updated: res.updatedCount,
       });
 
       // Muat ulang data terbaru
       await loadInventoryData();
     } catch (err: any) {
-      console.error('Error saat proses upload:', err);
-      setImportError(err?.message || 'Terjadi kendala saat menyimpan ke database Supabase.');
+      console.error('Error saat sinkronisasi stok:', err);
+      setImportError(err?.message || 'Terjadi kendala saat menyinkronkan stok gudang.');
     } finally {
       setIsImportLoading(false);
       setImportProgress('');
@@ -190,7 +172,6 @@ export default function PPICPlanningProgressPage() {
     }
   };
 
-  // 3. Simpan perubahan edit item lewat ppicService.updateItem
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
@@ -199,6 +180,7 @@ export default function PPICPlanningProgressPage() {
       await ppicService.updateItem(editingItem.id, {
         itemCode: editingItem.itemCode,
         itemName: editingItem.itemName,
+        category: editingItem.category,
         currentStock: editingItem.currentStock,
         monthlyAvgSales: editingItem.monthlyAvgSales,
       });
@@ -212,7 +194,6 @@ export default function PPICPlanningProgressPage() {
     }
   };
 
-  // 4. Hapus item lewat ppicService.deleteItem
   const handleDeleteItem = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('Apakah Anda yakin ingin menghapus barang ini dari database Supabase?')) return;
@@ -242,7 +223,7 @@ export default function PPICPlanningProgressPage() {
     const matchesSearch =
       item.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.category.toLowerCase().includes(searchTerm.toLowerCase());
+      (item.category && item.category.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const isSafe = item.currentStock >= item.monthlyAvgSales;
     const matchesStatus =
@@ -287,7 +268,7 @@ export default function PPICPlanningProgressPage() {
           <ArrowLeft className="h-4 w-4 text-[#5B7276]" /> Kembali ke Beranda
         </Link>
 
-        {/* Hero + ringkasan */}
+        {/* Hero + Ringkasan */}
         <section className="relative mt-5 overflow-hidden rounded-3xl bg-[#10262B] p-6 text-white md:p-8">
           <div
             aria-hidden
@@ -305,11 +286,8 @@ export default function PPICPlanningProgressPage() {
 
           <div className="relative flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
-              <p className="inline-flex items-center gap-1.5 rounded-full bg-[#FBEFD5]/15 px-3 py-1 text-xs font-semibold text-[#F3CB87] ring-1 ring-[#F3CB87]/25">
-                <Lock className="h-3 w-3" /> Super Admin
-              </p>
               <h1 className={`${display.className} mt-3 text-3xl font-extrabold tracking-tight md:text-4xl`}>
-                PPIC: Monitoring Stok & Restock Plan
+                Monitoring Stok Gudang
               </h1>
               <p className="mt-1 text-sm text-white/65">PT Eka Ormed Indonesia</p>
             </div>
@@ -331,7 +309,7 @@ export default function PPICPlanningProgressPage() {
                 }}
                 className={`${btnPrimary} h-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2DD4BF]`}
               >
-                <UploadCloud className="h-4 w-4" /> Import Excel Stok
+                <UploadCloud className="h-4 w-4" /> Sinkronkan Stok (Excel)
               </button>
             </div>
           </div>
@@ -369,47 +347,35 @@ export default function PPICPlanningProgressPage() {
             })}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[14rem] flex-1 lg:w-80 lg:flex-none">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7F9296]" />
-              <input
-                type="text"
-                placeholder="Cari kode, nama produk, atau kategori"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className={`${focus} w-full rounded-full bg-white py-2.5 pl-10 pr-4 text-sm ring-1 ring-[#D5DEDB] placeholder:text-[#8FA0A3]`}
-              />
-            </div>
-            <button
-              onClick={() => {
-                setTempMonths(targetMonths);
-                setIsSettingMonthOpen(true);
-              }}
-              className={`${focus} inline-flex items-center gap-2 rounded-full bg-[#E1ECE9] px-4 py-2.5 text-sm font-semibold text-[#0B5A52] ring-1 ring-inset ring-[#C6DAD5] transition hover:bg-[#D5E6E1]`}
-            >
-              <Settings2 className="h-4 w-4" /> Target restock: {targetMonths} bln
-            </button>
+          <div className="relative min-w-[14rem] flex-1 lg:w-80 lg:flex-none">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7F9296]" />
+            <input
+              type="text"
+              placeholder="Cari kode, nama produk, atau kategori"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={`${focus} w-full rounded-full bg-white py-2.5 pl-10 pr-4 text-sm ring-1 ring-[#D5DEDB] placeholder:text-[#8FA0A3]`}
+            />
           </div>
         </div>
 
-        {/* Tabel stok */}
+        {/* Tabel Stok Gudang */}
         <section className="mt-5 overflow-hidden rounded-2xl bg-white ring-1 ring-[#D5DEDB]">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[#E4EAE7] bg-[#F7F9F8] text-xs font-medium text-[#6A7E82]">
-                  <th className="px-6 py-3">Kode & nama barang</th>
-                  <th className="px-4 py-3 text-center">Stok gudang</th>
-                  <th className="px-4 py-3 text-center">Avg penjualan / bln</th>
+                  <th className="px-6 py-3">Kode & Nama Barang</th>
+                  <th className="px-4 py-3 text-center">Stok Gudang</th>
+                  <th className="px-4 py-3 text-center">Avg Penjualan / Bln</th>
                   <th className="px-4 py-3 text-center">Status</th>
-                  <th className="bg-[#EEF5F3] px-4 py-3 text-center text-[#0B5A52]">Perlu restock ({targetMonths} bln)</th>
                   <th className="w-24 px-4 py-3 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EEF2F0]">
                 {loadingData ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-14 text-center text-[#5B7276]">
+                    <td colSpan={5} className="px-6 py-14 text-center text-[#5B7276]">
                       <span className="inline-flex items-center gap-2">
                         <Loader2 className="h-5 w-5 animate-spin text-[#0F766E]" /> Mengambil data inventaris...
                       </span>
@@ -418,16 +384,20 @@ export default function PPICPlanningProgressPage() {
                 ) : filteredData.length > 0 ? (
                   filteredData.map((item) => {
                     const isSafe = item.currentStock >= item.monthlyAvgSales;
-                    const neededStock = Math.ceil(item.monthlyAvgSales * targetMonths);
-                    const restockQty = Math.max(0, neededStock - item.currentStock);
                     const coverage = item.monthlyAvgSales > 0 ? item.currentStock / item.monthlyAvgSales : null;
 
                     return (
                       <tr key={item.id} className="transition-colors hover:bg-[#F7F9F8]">
                         <td className="px-6 py-4">
-                          <span className="rounded-md bg-[#E1ECE9] px-2 py-0.5 font-mono text-xs font-bold text-[#0B5A52]">{item.itemCode}</span>
-                          <p className={`${display.className} mt-1.5 text-[15px] font-bold leading-snug`}>{item.itemName}</p>
-                          <p className="text-xs text-[#7F9296]">{item.category}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-md bg-[#E1ECE9] px-2 py-0.5 font-mono text-xs font-bold text-[#0B5A52]">{item.itemCode}</span>
+                            {item.category && item.category !== 'Stok Impor' && item.category !== 'General' && (
+                              <span className="rounded-md bg-[#F1F4F2] px-2 py-0.5 text-[11px] font-medium text-[#44595D] ring-1 ring-[#D5DEDB]">
+                                {item.category}
+                              </span>
+                            )}
+                          </div>
+                          <p className={`${display.className} mt-1 text-[15px] font-bold leading-snug`}>{item.itemName}</p>
                         </td>
 
                         <td className="px-4 py-4 text-center">
@@ -452,19 +422,6 @@ export default function PPICPlanningProgressPage() {
                           <span className="mt-1 block text-[11px] text-[#7F9296]">
                             {coverage === null ? 'tanpa penjualan' : `cukup ±${coverage.toLocaleString('id-ID', { maximumFractionDigits: 1 })} bln`}
                           </span>
-                        </td>
-
-                        <td className="bg-[#F4F9F8] px-4 py-4 text-center">
-                          {restockQty > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E1ECE9] px-3 py-1 text-sm font-bold text-[#0B5A52]">
-                              <PackagePlus className="h-4 w-4" /> +{restockQty}
-                              <span className="text-xs font-medium text-[#5B7276]">{item.unit}</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#0B6B4F]">
-                              <CheckCircle2 className="h-3.5 w-3.5" /> Tercukupi
-                            </span>
-                          )}
                         </td>
 
                         <td className="px-4 py-4">
@@ -492,7 +449,7 @@ export default function PPICPlanningProgressPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
+                    <td colSpan={5} className="px-6 py-16 text-center">
                       <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#E6EFEC] text-[#0F766E]">
                         <Boxes className="h-6 w-6" />
                       </div>
@@ -501,7 +458,7 @@ export default function PPICPlanningProgressPage() {
                       </p>
                       <p className="mx-auto mt-1 max-w-sm text-sm text-[#5B7276]">
                         {stockList.length === 0
-                          ? 'Klik Import Excel Stok di bagian atas untuk memasukkan data dari file Excel.'
+                          ? 'Belum ada data barang di database Supabase.'
                           : 'Coba kata kunci lain atau ganti filter status.'}
                       </p>
                     </td>
@@ -514,86 +471,18 @@ export default function PPICPlanningProgressPage() {
 
         {!loadingData && stockList.length > 0 && (
           <p className="mt-4 text-xs text-[#7F9296]">
-            Menampilkan {filteredData.length} dari {stockList.length} barang. Rumus restock: (avg penjualan × {targetMonths} bulan) dikurangi stok saat ini.
+            Menampilkan {filteredData.length} dari {stockList.length} jenis barang. Status aman didasarkan pada perbandingan stok gudang dengan estimasi penjualan bulanan.
           </p>
         )}
       </main>
 
-      {/* Modal target bulan restock */}
-      {isSettingMonthOpen && (
-        <ModalShell title="Target bulan restock" onClose={() => setIsSettingMonthOpen(false)} maxW="max-w-sm">
-          <div className="p-6">
-            <p className={labelCls}>Stok cadangan untuk berapa bulan?</p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setTempMonths((m) => Math.max(1, m - 1))}
-                aria-label="Kurangi satu bulan"
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl ring-1 ring-[#C5D1CE] hover:bg-[#F1F4F2]"
-              >
-                <Minus className="h-4 w-4" />
-              </button>
-              <input
-                type="number"
-                min="1"
-                max="24"
-                value={tempMonths}
-                onChange={(e) => setTempMonths(Math.max(1, Number(e.target.value)))}
-                className={`${inputCls} h-11 text-center text-lg font-bold`}
-                aria-label="Jumlah bulan"
-              />
-              <button
-                type="button"
-                onClick={() => setTempMonths((m) => Math.min(24, m + 1))}
-                aria-label="Tambah satu bulan"
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl ring-1 ring-[#C5D1CE] hover:bg-[#F1F4F2]"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {[1, 2, 3, 4, 6, 12].map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setTempMonths(m)}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                    tempMonths === m ? 'bg-[#10262B] text-white' : 'bg-[#F1F4F2] text-[#44595D] hover:bg-[#E1ECE9]'
-                  }`}
-                >
-                  {m} bln
-                </button>
-              ))}
-            </div>
-
-            <p className="mt-4 text-xs leading-relaxed text-[#7F9296]">
-              Rumus: (Avg penjualan × {tempMonths} bulan) dikurangi stok saat ini.
-            </p>
-          </div>
-          <div className="flex justify-end gap-2 border-t border-[#E4EAE7] px-6 py-4">
-            <button type="button" onClick={() => setIsSettingMonthOpen(false)} className={btnGhost}>Batal</button>
-            <button
-              type="button"
-              onClick={() => {
-                setTargetMonths(tempMonths);
-                setIsSettingMonthOpen(false);
-              }}
-              className={btnPrimary}
-            >
-              <Check className="h-4 w-4" /> Terapkan
-            </button>
-          </div>
-        </ModalShell>
-      )}
-
-      {/* Modal edit item */}
+      {/* Modal Edit Item */}
       {editingItem && (
-        <ModalShell title="Edit data barang" onClose={() => setEditingItem(null)}>
+        <ModalShell title="Edit Data Barang" onClose={() => setEditingItem(null)}>
           <form onSubmit={handleSaveEdit}>
             <div className="space-y-4 p-6">
               <div>
-                <label htmlFor="edit-code" className={labelCls}>Kode barang</label>
+                <label htmlFor="edit-code" className={labelCls}>Kode Barang</label>
                 <input
                   id="edit-code"
                   type="text"
@@ -604,7 +493,7 @@ export default function PPICPlanningProgressPage() {
                 />
               </div>
               <div>
-                <label htmlFor="edit-name" className={labelCls}>Nama barang</label>
+                <label htmlFor="edit-name" className={labelCls}>Nama Barang</label>
                 <input
                   id="edit-name"
                   type="text"
@@ -614,9 +503,20 @@ export default function PPICPlanningProgressPage() {
                   className={inputCls}
                 />
               </div>
+              <div>
+                <label htmlFor="edit-category" className={labelCls}>Kategori</label>
+                <input
+                  id="edit-category"
+                  type="text"
+                  placeholder="Misal: Plate, Screw, Mesh, Wire..."
+                  value={editingItem.category === 'Stok Impor' || editingItem.category === 'General' ? '' : editingItem.category}
+                  onChange={(e) => setEditingItem({ ...editingItem, category: e.target.value })}
+                  className={inputCls}
+                />
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="edit-stock" className={labelCls}>Stok gudang</label>
+                  <label htmlFor="edit-stock" className={labelCls}>Stok Gudang</label>
                   <input
                     id="edit-stock"
                     type="number"
@@ -627,7 +527,7 @@ export default function PPICPlanningProgressPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="edit-avg" className={labelCls}>Avg penjualan / bln</label>
+                  <label htmlFor="edit-avg" className={labelCls}>Avg Penjualan / Bln</label>
                   <input
                     id="edit-avg"
                     type="number"
@@ -643,24 +543,23 @@ export default function PPICPlanningProgressPage() {
             <div className="flex justify-end gap-2 border-t border-[#E4EAE7] px-6 py-4">
               <button type="button" onClick={() => setEditingItem(null)} className={btnGhost}>Batal</button>
               <button type="submit" className={btnPrimary}>
-                <Check className="h-4 w-4" /> Simpan ke database
+                <Check className="h-4 w-4" /> Simpan Perubahan
               </button>
             </div>
           </form>
         </ModalShell>
       )}
 
-      {/* Modal import Excel */}
+      {/* Modal Sinkronisasi Stok Harian */}
       {isImportModalOpen && (
         <ModalShell
-          title="Import stok dari Excel"
+          title="Sinkronkan Stok dari Excel"
           onClose={() => !isImportLoading && setIsImportModalOpen(false)}
           maxW="max-w-lg"
         >
           <div className="p-6">
             <p className="text-sm leading-relaxed text-[#5B7276]">
-              Pilih file stok Anda. Data akan diproses lalu disimpan ke tabel <code className="rounded bg-[#F1F4F2] px-1.5 py-0.5 text-xs">ppic_inventory</code> di Supabase.
-              Kolom yang dibaca: KODE, BARANG, STOK GD CENTER, dan TOTAL KELUAR.
+              Import data <strong>Excel</strong> untuk memperbarui <strong>Jumlah Stok</strong>.
             </p>
 
             <button
@@ -674,8 +573,8 @@ export default function PPICPlanningProgressPage() {
               <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#E1ECE9] text-[#0F766E]">
                 <UploadCloud className="h-6 w-6" />
               </span>
-              <span className="mt-3 text-sm font-semibold">Klik untuk memilih file</span>
-              <span className="mt-0.5 text-xs text-[#7F9296]">Format .xlsx, .xls, atau .csv</span>
+              <span className="mt-3 text-sm font-semibold">Pilih File Excel Update Stok</span>
+              <span className="mt-0.5 text-xs text-[#7F9296]">Bisa file penuh maupun sebagian (.xlsx, .xls)</span>
             </button>
             <input
               ref={fileInputRef}
@@ -695,9 +594,12 @@ export default function PPICPlanningProgressPage() {
             {importSummary && (
               <div role="status" className="mt-4 flex items-start gap-2.5 rounded-xl bg-[#DDF3EA] p-3 text-sm text-[#0B5A42]">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  Berhasil menyimpan <strong>{importSummary.success}</strong> dari {importSummary.total} item barang ke database.
-                </span>
+                <div>
+                  <p className="font-bold">Sinkronisasi stok selesai!</p>
+                  <p className="mt-0.5 text-xs text-[#0B5A42]/90">
+                    Dari <strong>{importSummary.totalInFile}</strong> item dalam file, ditemukan <strong>{importSummary.matched}</strong> barang cocok di database, dan <strong>{importSummary.updated}</strong> stok barang berhasil diperbarui angkanya.
+                  </p>
+                </div>
               </div>
             )}
 
