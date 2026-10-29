@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import {
   ArrowLeft, Search, ShieldAlert, Boxes, X, UploadCloud, Loader2, CheckCircle2, AlertCircle,
-  Pencil, Trash2, Check, RefreshCw, Lock,
+  Pencil, Trash2, Check, RefreshCw, CalendarDays, Factory,
 } from 'lucide-react';
 import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
 
@@ -110,7 +110,6 @@ export default function PPICPlanningProgressPage() {
     }
   };
 
-  // Parser Excel: Hanya baca KODE & STOK untuk mengupdate angka stok
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -151,7 +150,6 @@ export default function PPICPlanningProgressPage() {
 
       setImportProgress(`Mencocokkan dan menyinkronkan stok ${incomingStocks.length} barang...`);
 
-      // Panggil fungsi sync stok di service
       const res = await ppicService.syncStockOnly(incomingStocks);
 
       setImportSummary({
@@ -160,7 +158,6 @@ export default function PPICPlanningProgressPage() {
         updated: res.updatedCount,
       });
 
-      // Muat ulang data terbaru
       await loadInventoryData();
     } catch (err: any) {
       console.error('Error saat sinkronisasi stok:', err);
@@ -260,16 +257,65 @@ export default function PPICPlanningProgressPage() {
         @media (prefers-reduced-motion: reduce) { .ormov-pop, .ormov-fade { animation: none } }
       `}</style>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 md:px-8">
-        <Link
-          href="/"
-          className={`${focus} inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-[#10262B] ring-1 ring-[#D5DEDB] transition hover:ring-[#9DB0B3]`}
-        >
-          <ArrowLeft className="h-4 w-4 text-[#5B7276]" /> Kembali ke Beranda
-        </Link>
+      <main className="mx-auto max-w-7xl px-3 py-4 md:px-8 md:py-6">
+        
+        {/* Top Navigation Bar: Tinggi Sama Persis (h-10 / 40px) & Responsif */}
+        <div className="flex items-center gap-2">
+          {/* Tombol Back */}
+          <Link
+            href="/"
+            title="Kembali ke Beranda"
+            className={`${focus} inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-white px-3 sm:px-3.5 text-xs md:text-sm font-medium text-[#44595D] ring-1 ring-[#D5DEDB] transition hover:bg-[#F1F4F2] hover:text-[#10262B] shadow-sm shrink-0`}
+          >
+            <ArrowLeft className="h-4 w-4 text-[#5B7276]" />
+            <span className="hidden sm:inline">Beranda</span>
+          </Link>
+
+          {/* Segmented Control Navigasi PPIC */}
+          <nav aria-label="Menu Modul PPIC" className="grid h-10 grid-cols-3 gap-1 rounded-xl bg-[#E4EAE7] p-1 shadow-inner flex-1 max-w-full">
+            {/* Tab 1: Monitoring Stok (Aktif) */}
+            <Link
+              href="/ppic"
+              title="Monitoring Stok"
+              className="inline-flex h-full items-center justify-center gap-1.5 rounded-lg bg-[#10262B] px-2 text-xs font-semibold text-white shadow-sm transition text-center"
+            >
+              <Boxes className="h-3.5 w-3.5 shrink-0 text-[#2DD4BF]" />
+              <span className="truncate">
+                <span className="sm:hidden">Stok</span>
+                <span className="hidden sm:inline">Monitoring Stok</span>
+              </span>
+            </Link>
+
+            {/* Tab 2: PPIC Planning */}
+            <Link
+              href="/ppic/ppicPlanning"
+              title="PPIC Planning"
+              className="inline-flex h-full items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-medium text-[#44595D] transition hover:bg-white/60 hover:text-[#10262B] text-center"
+            >
+              <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#5B7276]" />
+              <span className="truncate">
+                <span className="sm:hidden">PPIC Plan</span>
+                <span className="hidden sm:inline">PPIC Planning</span>
+              </span>
+            </Link>
+
+            {/* Tab 3: Production Planning */}
+            <Link
+              href="/ppic/productionPlanning"
+              title="Production Planning"
+              className="inline-flex h-full items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-medium text-[#44595D] transition hover:bg-white/60 hover:text-[#10262B] text-center"
+            >
+              <Factory className="h-3.5 w-3.5 shrink-0 text-[#5B7276]" />
+              <span className="truncate">
+                <span className="sm:hidden">Prod Plan</span>
+                <span className="hidden sm:inline">Production Planning</span>
+              </span>
+            </Link>
+          </nav>
+        </div>
 
         {/* Hero + Ringkasan */}
-        <section className="relative mt-5 overflow-hidden rounded-3xl bg-[#10262B] p-6 text-white md:p-8">
+        <section className="relative mt-4 overflow-hidden rounded-3xl bg-[#10262B] p-5 text-white sm:p-6 md:p-8">
           <div
             aria-hidden
             className="absolute inset-0"
@@ -284,20 +330,20 @@ export default function PPICPlanningProgressPage() {
           <div aria-hidden className="pointer-events-none absolute -left-20 -top-24 h-64 w-64 rounded-full bg-[#2DD4BF]/25 blur-3xl" />
           <div aria-hidden className="pointer-events-none absolute -bottom-28 right-0 h-60 w-60 rounded-full bg-[#3F63D6]/25 blur-3xl" />
 
-          <div className="relative flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className={`${display.className} mt-3 text-3xl font-extrabold tracking-tight md:text-4xl`}>
+              <h1 className={`${display.className} text-2xl font-extrabold tracking-tight md:text-3xl`}>
                 Monitoring Stok Gudang
               </h1>
-              <p className="mt-1 text-sm text-white/65">PT Eka Ormed Indonesia</p>
+              <p className="mt-1 text-xs text-white/65 sm:text-sm">PT Eka Ormed Indonesia</p>
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <button
                 onClick={loadInventoryData}
                 aria-label="Muat ulang data dari Supabase"
                 title="Muat ulang data"
-                className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-white ring-1 ring-white/15 transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2DD4BF]"
+                className="grid h-9 w-9 sm:h-10 sm:w-10 place-items-center rounded-xl bg-white/10 text-white ring-1 ring-white/15 transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2DD4BF]"
               >
                 <RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} />
               </button>
@@ -307,26 +353,27 @@ export default function PPICPlanningProgressPage() {
                   setImportError(null);
                   setIsImportModalOpen(true);
                 }}
-                className={`${btnPrimary} h-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2DD4BF]`}
+                className={`${btnPrimary} h-9 sm:h-10 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2DD4BF]`}
               >
-                <UploadCloud className="h-4 w-4" /> Sinkronkan Stok (Excel)
+                <UploadCloud className="h-4 w-4" />
+                <span>Sinkronkan Stok (Excel)</span>
               </button>
             </div>
           </div>
 
-          <dl className="relative mt-7 grid gap-3 sm:grid-cols-3">
+          <dl className="relative mt-5 grid gap-2.5 sm:grid-cols-3 sm:gap-3">
             {stats.map((s) => (
-              <div key={s.label} className="rounded-2xl bg-white/[0.07] p-4 ring-1 ring-white/10">
+              <div key={s.label} className="rounded-2xl bg-white/[0.07] p-3.5 sm:p-4 ring-1 ring-white/10">
                 <dt className="text-xs font-medium text-white/55">{s.label}</dt>
-                <dd className={`${display.className} mt-1 text-3xl font-extrabold ${s.tone}`}>{loadingData ? '–' : s.value}</dd>
-                <p className="mt-0.5 text-xs text-white/45">{s.sub}</p>
+                <dd className={`${display.className} mt-1 text-2xl sm:text-3xl font-extrabold ${s.tone}`}>{loadingData ? '–' : s.value}</dd>
+                <p className="mt-0.5 text-[11px] sm:text-xs text-white/45">{s.sub}</p>
               </div>
             ))}
           </dl>
         </section>
 
-        {/* Toolbar */}
-        <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        {/* Toolbar Filter & Search */}
+        <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div role="tablist" aria-label="Filter status stok" className="flex flex-wrap gap-1.5">
             {tabs.map((t) => {
               const active = statusFilter === t.value;
@@ -336,47 +383,47 @@ export default function PPICPlanningProgressPage() {
                   role="tab"
                   aria-selected={active}
                   onClick={() => setStatusFilter(t.value)}
-                  className={`${focus} inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
+                  className={`${focus} inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs sm:text-sm font-medium transition ${
                     active ? 'bg-[#10262B] text-white' : 'bg-white text-[#44595D] ring-1 ring-[#D5DEDB] hover:ring-[#9DB0B3]'
                   }`}
                 >
                   {t.label}
-                  <span className={`text-xs ${active ? 'text-white/60' : 'text-[#7F9296]'}`}>{t.count}</span>
+                  <span className={`text-[11px] sm:text-xs ${active ? 'text-white/60' : 'text-[#7F9296]'}`}>{t.count}</span>
                 </button>
               );
             })}
           </div>
 
-          <div className="relative min-w-[14rem] flex-1 lg:w-80 lg:flex-none">
+          <div className="relative w-full lg:w-80">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7F9296]" />
             <input
               type="text"
-              placeholder="Cari kode, nama produk, atau kategori"
+              placeholder="Cari kode, nama produk, kategori..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className={`${focus} w-full rounded-full bg-white py-2.5 pl-10 pr-4 text-sm ring-1 ring-[#D5DEDB] placeholder:text-[#8FA0A3]`}
+              className={`${focus} w-full rounded-full bg-white py-2 pl-9 pr-4 text-xs sm:text-sm ring-1 ring-[#D5DEDB] placeholder:text-[#8FA0A3]`}
             />
           </div>
         </div>
 
         {/* Tabel Stok Gudang */}
-        <section className="mt-5 overflow-hidden rounded-2xl bg-white ring-1 ring-[#D5DEDB]">
+        <section className="mt-4 overflow-hidden rounded-2xl bg-white ring-1 ring-[#D5DEDB]">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[#E4EAE7] bg-[#F7F9F8] text-xs font-medium text-[#6A7E82]">
-                  <th className="px-6 py-3">Kode & Nama Barang</th>
+                  <th className="px-5 py-3">Kode & Nama Barang</th>
                   <th className="px-4 py-3 text-center">Stok Gudang</th>
                   <th className="px-4 py-3 text-center">Avg Penjualan / Bln</th>
                   <th className="px-4 py-3 text-center">Status</th>
-                  <th className="w-24 px-4 py-3 text-right">Aksi</th>
+                  <th className="w-20 px-4 py-3 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EEF2F0]">
                 {loadingData ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-14 text-center text-[#5B7276]">
-                      <span className="inline-flex items-center gap-2">
+                      <span className="inline-flex items-center gap-2 text-sm">
                         <Loader2 className="h-5 w-5 animate-spin text-[#0F766E]" /> Mengambil data inventaris...
                       </span>
                     </td>
@@ -388,8 +435,8 @@ export default function PPICPlanningProgressPage() {
 
                     return (
                       <tr key={item.id} className="transition-colors hover:bg-[#F7F9F8]">
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap items-center gap-2">
+                        <td className="px-5 py-3.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span className="rounded-md bg-[#E1ECE9] px-2 py-0.5 font-mono text-xs font-bold text-[#0B5A52]">{item.itemCode}</span>
                             {item.category && item.category !== 'Stok Impor' && item.category !== 'General' && (
                               <span className="rounded-md bg-[#F1F4F2] px-2 py-0.5 text-[11px] font-medium text-[#44595D] ring-1 ring-[#D5DEDB]">
@@ -397,20 +444,20 @@ export default function PPICPlanningProgressPage() {
                               </span>
                             )}
                           </div>
-                          <p className={`${display.className} mt-1 text-[15px] font-bold leading-snug`}>{item.itemName}</p>
+                          <p className={`${display.className} mt-1 text-[14px] sm:text-[15px] font-bold leading-snug`}>{item.itemName}</p>
                         </td>
 
-                        <td className="px-4 py-4 text-center">
+                        <td className="px-4 py-3.5 text-center">
                           <span className="text-base font-bold tabular-nums">{item.currentStock}</span>
                           <span className="block text-[11px] text-[#7F9296]">{item.unit}</span>
                         </td>
 
-                        <td className="px-4 py-4 text-center">
+                        <td className="px-4 py-3.5 text-center">
                           <span className="text-base font-semibold tabular-nums">{item.monthlyAvgSales}</span>
                           <span className="block text-[11px] text-[#7F9296]">{item.unit} / bln</span>
                         </td>
 
-                        <td className="px-4 py-4 text-center">
+                        <td className="px-4 py-3.5 text-center">
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
                               isSafe ? 'bg-[#DDF3EA] text-[#0B6B4F]' : 'bg-[#FBE8E5] text-[#B4402B]'
@@ -424,23 +471,23 @@ export default function PPICPlanningProgressPage() {
                           </span>
                         </td>
 
-                        <td className="px-4 py-4">
+                        <td className="px-4 py-3.5">
                           <div className="flex justify-end gap-1">
                             <button
                               onClick={() => setEditingItem(item)}
                               aria-label={`Edit ${item.itemName}`}
                               title="Edit item"
-                              className="grid h-9 w-9 place-items-center rounded-lg text-[#5B7276] transition hover:bg-[#E1ECE9] hover:text-[#0F766E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]"
+                              className="grid h-8 w-8 place-items-center rounded-lg text-[#5B7276] transition hover:bg-[#E1ECE9] hover:text-[#0F766E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]"
                             >
-                              <Pencil className="h-4 w-4" />
+                              <Pencil className="h-3.5 w-3.5" />
                             </button>
                             <button
                               onClick={(e) => handleDeleteItem(item.id, e)}
                               aria-label={`Hapus ${item.itemName}`}
                               title="Hapus item"
-                              className="grid h-9 w-9 place-items-center rounded-lg text-[#95A5A8] transition hover:bg-[#FBE8E5] hover:text-[#B4402B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B4402B]"
+                              className="grid h-8 w-8 place-items-center rounded-lg text-[#95A5A8] transition hover:bg-[#FBE8E5] hover:text-[#B4402B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B4402B]"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
                         </td>
@@ -453,10 +500,10 @@ export default function PPICPlanningProgressPage() {
                       <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#E6EFEC] text-[#0F766E]">
                         <Boxes className="h-6 w-6" />
                       </div>
-                      <p className={`${display.className} mt-4 text-lg font-bold`}>
+                      <p className={`${display.className} mt-4 text-base sm:text-lg font-bold`}>
                         {stockList.length === 0 ? 'Belum ada data barang' : 'Tidak ada barang yang cocok'}
                       </p>
-                      <p className="mx-auto mt-1 max-w-sm text-sm text-[#5B7276]">
+                      <p className="mx-auto mt-1 max-w-sm text-xs sm:text-sm text-[#5B7276]">
                         {stockList.length === 0
                           ? 'Belum ada data barang di database Supabase.'
                           : 'Coba kata kunci lain atau ganti filter status.'}
@@ -470,7 +517,7 @@ export default function PPICPlanningProgressPage() {
         </section>
 
         {!loadingData && stockList.length > 0 && (
-          <p className="mt-4 text-xs text-[#7F9296]">
+          <p className="mt-3.5 text-xs text-[#7F9296]">
             Menampilkan {filteredData.length} dari {stockList.length} jenis barang. Status aman didasarkan pada perbandingan stok gudang dengan estimasi penjualan bulanan.
           </p>
         )}
@@ -480,7 +527,7 @@ export default function PPICPlanningProgressPage() {
       {editingItem && (
         <ModalShell title="Edit Data Barang" onClose={() => setEditingItem(null)}>
           <form onSubmit={handleSaveEdit}>
-            <div className="space-y-4 p-6">
+            <div className="space-y-4 p-5 sm:p-6">
               <div>
                 <label htmlFor="edit-code" className={labelCls}>Kode Barang</label>
                 <input
@@ -540,7 +587,7 @@ export default function PPICPlanningProgressPage() {
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t border-[#E4EAE7] px-6 py-4">
+            <div className="flex justify-end gap-2 border-t border-[#E4EAE7] px-5 py-4 sm:px-6">
               <button type="button" onClick={() => setEditingItem(null)} className={btnGhost}>Batal</button>
               <button type="submit" className={btnPrimary}>
                 <Check className="h-4 w-4" /> Simpan Perubahan
@@ -557,8 +604,8 @@ export default function PPICPlanningProgressPage() {
           onClose={() => !isImportLoading && setIsImportModalOpen(false)}
           maxW="max-w-lg"
         >
-          <div className="p-6">
-            <p className="text-sm leading-relaxed text-[#5B7276]">
+          <div className="p-5 sm:p-6">
+            <p className="text-xs sm:text-sm leading-relaxed text-[#5B7276]">
               Import data <strong>Excel</strong> untuk memperbarui <strong>Jumlah Stok</strong>.
             </p>
 
@@ -566,15 +613,15 @@ export default function PPICPlanningProgressPage() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isImportLoading}
-              className={`${focus} mt-4 flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#0F766E]/35 bg-[#F4F9F8] px-6 py-8 text-center transition ${
+              className={`${focus} mt-4 flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#0F766E]/35 bg-[#F4F9F8] px-4 py-7 text-center transition ${
                 isImportLoading ? 'cursor-not-allowed opacity-50' : 'hover:border-[#0F766E] hover:bg-[#E9F3F0]'
               }`}
             >
               <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#E1ECE9] text-[#0F766E]">
                 <UploadCloud className="h-6 w-6" />
               </span>
-              <span className="mt-3 text-sm font-semibold">Pilih File Excel Update Stok</span>
-              <span className="mt-0.5 text-xs text-[#7F9296]">Bisa file penuh maupun sebagian (.xlsx, .xls)</span>
+              <span className="mt-3 text-xs sm:text-sm font-semibold">Pilih File Excel Update Stok</span>
+              <span className="mt-0.5 text-[11px] sm:text-xs text-[#7F9296]">Bisa file penuh maupun sebagian (.xlsx, .xls)</span>
             </button>
             <input
               ref={fileInputRef}
@@ -586,13 +633,13 @@ export default function PPICPlanningProgressPage() {
             />
 
             {isImportLoading && (
-              <div role="status" className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-[#0F766E]">
+              <div role="status" className="mt-4 flex items-center justify-center gap-2 text-xs sm:text-sm font-medium text-[#0F766E]">
                 <Loader2 className="h-4 w-4 animate-spin" /> {importProgress}
               </div>
             )}
 
             {importSummary && (
-              <div role="status" className="mt-4 flex items-start gap-2.5 rounded-xl bg-[#DDF3EA] p-3 text-sm text-[#0B5A42]">
+              <div role="status" className="mt-4 flex items-start gap-2.5 rounded-xl bg-[#DDF3EA] p-3 text-xs sm:text-sm text-[#0B5A42]">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
                   <p className="font-bold">Sinkronisasi stok selesai!</p>
@@ -604,13 +651,13 @@ export default function PPICPlanningProgressPage() {
             )}
 
             {importError && (
-              <div role="alert" className="mt-4 flex items-start gap-2.5 rounded-xl bg-[#FBE8E5] p-3 text-sm font-medium text-[#B4402B]">
+              <div role="alert" className="mt-4 flex items-start gap-2.5 rounded-xl bg-[#FBE8E5] p-3 text-xs sm:text-sm font-medium text-[#B4402B]">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{importError}</span>
               </div>
             )}
           </div>
-          <div className="flex justify-end border-t border-[#E4EAE7] px-6 py-4">
+          <div className="flex justify-end border-t border-[#E4EAE7] px-5 py-4 sm:px-6">
             <button type="button" disabled={isImportLoading} onClick={() => setIsImportModalOpen(false)} className={btnGhost}>
               Selesai / Tutup
             </button>
