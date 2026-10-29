@@ -174,6 +174,8 @@ export default function PPICPlanningProgressPage() {
     if (!editingItem) return;
 
     try {
+      // PERHATIKAN: Jangan kirim properti 'status' ke updateItem karena kolom status di DB
+      // adalah GENERATED ALWAYS AS (PostgreSQL akan error jika dikirim nilai manual).
       await ppicService.updateItem(editingItem.id, {
         itemCode: editingItem.itemCode,
         itemName: editingItem.itemName,
@@ -182,8 +184,12 @@ export default function PPICPlanningProgressPage() {
         monthlyAvgSales: editingItem.monthlyAvgSales,
       });
 
+      // Update state lokal untuk immediate feedback di UI
+      const isSafe = (editingItem.currentStock || 0) >= (editingItem.monthlyAvgSales || 0);
+      const computedStatus = isSafe ? 'aman' : 'kurang';
+
       setStockList((prev) =>
-        prev.map((item) => (item.id === editingItem.id ? editingItem : item))
+        prev.map((item) => (item.id === editingItem.id ? { ...editingItem, status: computedStatus } : item))
       );
       setEditingItem(null);
     } catch (err: any) {
@@ -222,7 +228,8 @@ export default function PPICPlanningProgressPage() {
       item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.category && item.category.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const isSafe = item.currentStock >= item.monthlyAvgSales;
+    // Gunakan item.status jika tersedia dari DB, atau fallback hitungan
+    const isSafe = item.status ? item.status === 'aman' : (item.currentStock || 0) >= (item.monthlyAvgSales || 0);
     const matchesStatus =
       statusFilter === 'ALL' ||
       (statusFilter === 'AMAN' && isSafe) ||
@@ -232,7 +239,9 @@ export default function PPICPlanningProgressPage() {
   });
 
   const totalSKU = stockList.length;
-  const safeStockCount = stockList.filter((i) => i.currentStock >= i.monthlyAvgSales).length;
+  const safeStockCount = stockList.filter((i) => 
+    i.status ? i.status === 'aman' : (i.currentStock || 0) >= (i.monthlyAvgSales || 0)
+  ).length;
   const criticalStockCount = totalSKU - safeStockCount;
 
   const stats = [
@@ -259,9 +268,8 @@ export default function PPICPlanningProgressPage() {
 
       <main className="mx-auto max-w-7xl px-3 py-4 md:px-8 md:py-6">
         
-        {/* Top Navigation Bar: Tinggi Sama Persis (h-10 / 40px) & Responsif */}
+        {/* Top Navigation Bar */}
         <div className="flex items-center gap-2">
-          {/* Tombol Back */}
           <Link
             href="/"
             title="Kembali ke Beranda"
@@ -271,9 +279,7 @@ export default function PPICPlanningProgressPage() {
             <span className="hidden sm:inline">Beranda</span>
           </Link>
 
-          {/* Segmented Control Navigasi PPIC */}
           <nav aria-label="Menu Modul PPIC" className="grid h-10 grid-cols-3 gap-1 rounded-xl bg-[#E4EAE7] p-1 shadow-inner flex-1 max-w-full">
-            {/* Tab 1: Monitoring Stok (Aktif) */}
             <Link
               href="/ppic"
               title="Monitoring Stok"
@@ -286,7 +292,6 @@ export default function PPICPlanningProgressPage() {
               </span>
             </Link>
 
-            {/* Tab 2: PPIC Planning */}
             <Link
               href="/ppic/ppicPlanning"
               title="PPIC Planning"
@@ -299,7 +304,6 @@ export default function PPICPlanningProgressPage() {
               </span>
             </Link>
 
-            {/* Tab 3: Production Planning */}
             <Link
               href="/ppic/productionPlanning"
               title="Production Planning"
@@ -327,8 +331,8 @@ export default function PPICPlanningProgressPage() {
               WebkitMaskImage: 'radial-gradient(ellipse at top left, black 10%, transparent 75%)',
             }}
           />
-          <div aria-hidden className="pointer-events-none absolute -left-20 -top-24 h-64 w-64 rounded-full bg-[#2DD4BF]/25 blur-3xl" />
-          <div aria-hidden className="pointer-events-none absolute -bottom-28 right-0 h-60 w-60 rounded-full bg-[#3F63D6]/25 blur-3xl" />
+          <div aria-hidden="true" className="pointer-events-none absolute -left-20 -top-24 h-64 w-64 rounded-full bg-[#2DD4BF]/25 blur-3xl" />
+          <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 right-0 h-60 w-60 rounded-full bg-[#3F63D6]/25 blur-3xl" />
 
           <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -430,8 +434,8 @@ export default function PPICPlanningProgressPage() {
                   </tr>
                 ) : filteredData.length > 0 ? (
                   filteredData.map((item) => {
-                    const isSafe = item.currentStock >= item.monthlyAvgSales;
-                    const coverage = item.monthlyAvgSales > 0 ? item.currentStock / item.monthlyAvgSales : null;
+                    const isSafe = item.status ? item.status === 'aman' : (item.currentStock || 0) >= (item.monthlyAvgSales || 0);
+                    const coverage = (item.monthlyAvgSales || 0) > 0 ? (item.currentStock || 0) / item.monthlyAvgSales : null;
 
                     return (
                       <tr key={item.id} className="transition-colors hover:bg-[#F7F9F8]">
@@ -448,13 +452,17 @@ export default function PPICPlanningProgressPage() {
                         </td>
 
                         <td className="px-4 py-3.5 text-center">
-                          <span className="text-base font-bold tabular-nums">{item.currentStock}</span>
-                          <span className="block text-[11px] text-[#7F9296]">{item.unit}</span>
+                          <span className="text-base font-bold tabular-nums">
+                            {Number(item.currentStock || 0).toLocaleString('id-ID')}
+                          </span>
+                          <span className="block text-[11px] text-[#7F9296]">{item.unit || 'Pcs'}</span>
                         </td>
 
                         <td className="px-4 py-3.5 text-center">
-                          <span className="text-base font-semibold tabular-nums">{item.monthlyAvgSales}</span>
-                          <span className="block text-[11px] text-[#7F9296]">{item.unit} / bln</span>
+                          <span className="text-base font-semibold tabular-nums">
+                            {Number(item.monthlyAvgSales || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 })}
+                          </span>
+                          <span className="block text-[11px] text-[#7F9296]">{item.unit || 'Pcs'} / bln</span>
                         </td>
 
                         <td className="px-4 py-3.5 text-center">
@@ -569,7 +577,7 @@ export default function PPICPlanningProgressPage() {
                     type="number"
                     min="0"
                     value={editingItem.currentStock}
-                    onChange={(e) => setEditingItem({ ...editingItem, currentStock: Number(e.target.value) })}
+                    onChange={(e) => setEditingItem({ ...editingItem, currentStock: parseInt(e.target.value, 10) || 0 })}
                     className={inputCls}
                   />
                 </div>
@@ -581,7 +589,7 @@ export default function PPICPlanningProgressPage() {
                     step="0.1"
                     min="0"
                     value={editingItem.monthlyAvgSales}
-                    onChange={(e) => setEditingItem({ ...editingItem, monthlyAvgSales: Number(e.target.value) })}
+                    onChange={(e) => setEditingItem({ ...editingItem, monthlyAvgSales: parseFloat(e.target.value) || 0 })}
                     className={inputCls}
                   />
                 </div>

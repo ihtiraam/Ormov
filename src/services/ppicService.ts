@@ -9,6 +9,7 @@ export interface InventoryStock {
   totalKeluarTahun: number;
   monthlyAvgSales: number;
   unit: string;
+  status: 'aman' | 'kurang';
 }
 
 export interface UpsertInventoryPayload {
@@ -66,6 +67,7 @@ export const ppicService = {
       totalKeluarTahun: Number(row.total_keluar) || 0,
       monthlyAvgSales: Number(row.monthly_avg_sales) || 0,
       unit: row.unit || 'Pcs',
+      status: (row.status as 'aman' | 'kurang') || 'aman',
     }));
   },
 
@@ -88,7 +90,6 @@ export const ppicService = {
   /**
    * Sinkronisasi Stok Saja:
    * Hanya mencocokkan kode barang dan memperbarui angka `current_stock`.
-   * Tidak menambah data baru, tidak mengubah nama, kategori, maupun avg sales.
    */
   async syncStockOnly(
     incomingStocks: StockUpdatePayload[]
@@ -97,7 +98,6 @@ export const ppicService = {
       return { updatedCount: 0, matchedCount: 0, ignoredCount: 0 };
     }
 
-    // 1. Ambil seluruh data barang yang ada di database untuk referensi pencocokan
     let allExisting: { id: string; item_code: string; current_stock: number }[] = [];
     let from = 0;
     const step = 1000;
@@ -126,7 +126,6 @@ export const ppicService = {
       }
     }
 
-    // Buat Map untuk pencarian instan O(1) berdasarkan item_code (case-insensitive)
     const existingMap = new Map<string, { id: string; current_stock: number }>();
     allExisting.forEach((item) => {
       if (item.item_code) {
@@ -137,7 +136,6 @@ export const ppicService = {
       }
     });
 
-    // 2. Pilah barang yang cocok dan hanya yang angkanya memang berubah
     const itemsToUpdate: { id: string; current_stock: number }[] = [];
     let matchedCount = 0;
     let ignoredCount = 0;
@@ -157,12 +155,10 @@ export const ppicService = {
       }
     });
 
-    // Jika tidak ada perubahan angka stok sama sekali
     if (itemsToUpdate.length === 0) {
       return { updatedCount: 0, matchedCount, ignoredCount };
     }
 
-    // 3. Update stok secara concurrent batch agar cepat dan stabil
     const BATCH_SIZE = 50;
     for (let i = 0; i < itemsToUpdate.length; i += BATCH_SIZE) {
       const batch = itemsToUpdate.slice(i, i + BATCH_SIZE);
@@ -187,7 +183,7 @@ export const ppicService = {
   },
 
   /**
-   * Memperbarui detail satu data barang (termasuk kategori)
+   * Memperbarui detail satu data barang
    */
   async updateItem(
     id: string,
